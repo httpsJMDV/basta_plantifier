@@ -1,0 +1,156 @@
+<?php
+
+namespace App\Http\Controllers;
+
+use App\Services\ImageStore;
+use App\Services\Sharing;
+use App\Services\SocialGraph;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\Rule;
+use Inertia\Inertia;
+
+class CommunityController extends Controller
+{
+    public function index(Request $r, SocialGraph $graph, Sharing $sharing)
+    {
+        $r->validate(['tab' => 'nullable|in:feed,following,requests,stories']);
+        $uid = $r->user()->id;
+        $excluded = $graph->blockedIds($uid);
+        $q = DB::table('posts')->join('users', 'users.id', '=', 'posts.user_id')->where('posts.status', 'published')->whereNull('users.suspended_at')->whereNotIn('posts.user_id', $excluded)->select('posts.*', 'users.name', 'users.username', 'users.avatar_media_id');
+        if ($r->input('tab') === 'requests') {
+            $q->where('posts.kind', 'identification');
+        }
+        if ($r->input('tab') === 'following') {
+            $q->whereIn('posts.user_id', DB::table('relationships')->where('user_id', $uid)->where('kind', 'follow')->pluck('target_id'));
+        }
+        $posts = $q->orderByDesc('posts.id')->paginate(15)->withQueryString();
+        $posts->through(function ($p) use ($excluded, $uid, $sharing) {
+            $p->avatar_url = $p->avatar_media_id ? '/media/'.$p->avatar_media_id : null;
+            $p->comments = DB::table('comments')->join('users', 'users.id', '=', 'comments.user_id')->where('post_id', $p->id)->whereNotIn('comments.user_id', $excluded)->select('comments.*', 'users.name', 'users.avatar_media_id')->orderBy('comments.id')->limit(50)->get()->map(function ($c) use ($uid) {
+                $c->avatar_url = $c->avatar_media_id ? '/media/'.$c->avatar_media_id : null;
+                $c->votes = DB::table('suggestion_votes')->where('comment_id', $c->id)->count();
+                $c->voted = DB::table('suggestion_votes')->where('comment_id', $c->id)->where('user_id', $uid)->exists();
+
+                return $c;
+            });
+            $p->shares = DB::table('shares')->where('post_id', $p->id)->get()->map(fn ($s) => $sharing->preview($s, $uid))->filter()->values();
+
+            return $p;
+        });
+        $stories = DB::table('stories')->join('users', 'users.id', '=', 'stories.user_id')->where('expires_at', '>', now())->whereNotIn('stories.user_id', $excluded)->whereNull('users.suspended_at')->where(fn ($q) => $q->where('audience', 'public')->orWhere('stories.user_id', $uid)->orWhereIn('stories.user_id', $graph->friendIds($uid)))->select('stories.*', 'users.name')->latest('stories.id')->limit(40)->get();
+
+        return Inertia::render('Community', ['posts' => $posts, 'stories' => $stories, 'tab' => $r->input('tab', 'feed'), 'plants' => $r->user()->plants()->get(['id', 'common_name'])]);
+    }
+
+    public function store(Request $r, ImageStore $images, Sharing $sharing)
+    {
+        $data = $r->validate(['body' => 'required|string|max:6000', 'kind' => 'required|in:post,identification', 'area' => 'nullable|string|max:160', 'image' => 'nullable|image|mimes:jpg,jpeg,png,webp|max:4096|dimensions:max_width=6000,max_height=6000', 'plant_record_id' => ['nullable', 'integer', Rule::exists('plant_records', 'id')->where('user_id', $r->user()->id)], 'share_confirmation' => $r->filled('plant_record_id') ? 'required|accepted' : 'nullable|boolean']);
+        if ($data['kind'] === 'identification') {
+            $r->validate(['image' => 'required|image']);
+        }
+        $media = $r->hasFile('image') ? $images->put($r->file('image'), $r->user()->id) : null;
+        DB::transaction(function () use ($r, $data, $media, $sharing) {
+            $id = DB::table('posts')->insertGetId(['user_id' => $r->user()->id, 'body' => $data['body'], 'kind' => $data['kind'], 'area' => $data['area'] ?? null, 'media_id' => $media?->id, 'status' => 'published', 'created_at' => now(), 'updated_at' => now()]);
+            if (! empty($data['plant_record_id'])) {
+                $sharing->attach($r->user()->id, (int) $data['plant_record_id'], $id);
+            }
+        });
+
+        return response()->json(['message' => 'Post published.']);
+    }
+
+    public function update(Request $r, int $post)
+    {
+        $p = DB::table('posts')->find($post);
+        abort_unless($p && $p->user_id === $r->user()->id, 403);
+        $data = $r->validate(['body' => 'required|string|max:6000']);
+        DB::table('posts')->where('id', $post)->update([...$data, 'updated_at' => now()]);
+
+        return response()->json(['message' => 'Post updated.']);
+    }
+
+    public function destroy(Request $r, int $post)
+    {
+        $p = DB::table('posts')->find($post);
+        abort_unless($p && $p->user_id === $r->user()->id, 403);
+        DB::table('posts')->where('id', $post)->delete();
+
+        return response()->json(['message' => 'Post deleted.']);
+    }
+
+    public function comment(Request $r, int $post, SocialGraph $graph)
+    {
+        $p = $this->readable($post, $r->user()->id, $graph);
+        abort_if((bool) $p->closed_at, 422, 'This identification request is closed.');
+        $data = $r->validate(['body' => 'required|string|max:3000', 'species' => 'nullable|string|max:200']);
+        DB::table('comments')->insert(['post_id' => $post, 'user_id' => $r->user()->id, ...$data, 'created_at' => now(), 'updated_at' => now()]);
+
+        return response()->json(['message' => 'Comment added.']);
+    }
+
+    public function deleteComment(Request $r, int $comment)
+    {
+        $c = DB::table('comments')->find($comment);
+        abort_unless($c && $c->user_id === $r->user()->id, 403);
+        DB::table('comments')->where('id', $comment)->delete();
+
+        return response()->json(['message' => 'Comment deleted.']);
+    }
+
+    public function vote(Request $r, int $comment, SocialGraph $graph)
+    {
+        $c = DB::table('comments')->find($comment);
+        abort_unless($c && $c->species, 404);
+        $p = $this->readable($c->post_id, $r->user()->id, $graph);
+        abort_if($c->user_id === $r->user()->id || $p->user_id === $r->user()->id || $graph->blocked($r->user()->id, $c->user_id), 403, 'You cannot support your own suggestion or approve your own request.');
+        $q = DB::table('suggestion_votes')->where('comment_id', $comment)->where('user_id', $r->user()->id);
+        $q->exists() ? $q->delete() : DB::table('suggestion_votes')->insertOrIgnore(['comment_id' => $comment, 'user_id' => $r->user()->id]);
+
+        return response()->json(['message' => 'Community support updated.']);
+    }
+
+    public function accept(Request $r, int $post, SocialGraph $graph)
+    {
+        $p = $this->readable($post, $r->user()->id, $graph);
+        abort_unless($p->user_id === $r->user()->id && $p->kind === 'identification', 403);
+        $data = $r->validate(['comment_id' => 'nullable|integer']);
+        DB::transaction(function () use ($data, $p, $r, $graph) {
+            if (! empty($data['comment_id'])) {
+                $c = DB::table('comments')->where('post_id', $p->id)->find($data['comment_id']);
+                abort_unless($c && $c->species && $c->user_id !== $r->user()->id && ! $graph->blocked($c->user_id, $r->user()->id), 422, 'Select a suggestion from another community member.');
+                DB::table('comments')->where('post_id', $p->id)->update(['accepted' => false]);
+                DB::table('comments')->where('id', $c->id)->update(['accepted' => true, 'updated_at' => now()]);
+            }
+            DB::table('posts')->where('id', $p->id)->update(['closed_at' => now(), 'updated_at' => now()]);
+        });
+
+        return response()->json(['message' => 'Request closed. Community suggestions are not scientific verification.']);
+    }
+
+    public function story(Request $r, ImageStore $images)
+    {
+        $data = $r->validate(['image' => 'required|image|mimes:jpeg,jpg,png,webp|max:4096|dimensions:max_width=6000,max_height=6000', 'caption' => 'nullable|string|max:240', 'audience' => 'required|in:public,friends']);
+        $media = $images->put($r->file('image'), $r->user()->id);
+        DB::table('stories')->insert(['user_id' => $r->user()->id, 'media_id' => $media->id, 'caption' => $data['caption'] ?? null, 'audience' => $data['audience'], 'expires_at' => now()->addDay(), 'created_at' => now(), 'updated_at' => now()]);
+
+        return response()->json(['message' => 'Story shared for 24 hours.']);
+    }
+
+    public function deleteStory(Request $r, int $story)
+    {
+        $s = DB::table('stories')->find($story);
+        abort_unless($s && $s->user_id === $r->user()->id, 403);
+        DB::table('stories')->where('id', $story)->delete();
+
+        return response()->json(['message' => 'Story deleted.']);
+    }
+
+    private function readable(int $id, int $viewer, SocialGraph $graph): object
+    {
+        $p = DB::table('posts')->where('status', 'published')->find($id);
+        abort_unless($p && ! $graph->blocked($viewer, $p->user_id), 404);
+
+        return $p;
+    }
+}

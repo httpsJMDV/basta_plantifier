@@ -1,0 +1,19 @@
+import DiscoveryPreference from '../components/DiscoveryPreference';
+import CustomSelect from '../components/CustomSelect';
+import {useState} from 'react';
+import {Head,useForm,usePage,router} from '@inertiajs/react';
+import {ArrowLeft,ArrowRight,Compass,Sprout,BookOpen,Users} from 'lucide-react';
+import {Brand,Button,Field,ErrorBox} from '../components/UI';
+import type {Shared} from '../types';
+const interests=['Houseplants','Native plants','Flowers','Herbs','Trees','Vegetables','Succulents','Orchids'];
+export default function Onboarding(){
+    const {props}=usePage<Shared>();const [step,setStep]=useState(0);const f=useForm({name:props.auth.user?.name??'',purpose:'discover',experience:'beginner',municipality:'',interests:[] as string[],discovery_enabled:false});
+    const titles=['What should we call you?','What brings you outdoors?','A little about your plant life.','Make yourself at home.'];
+    return <div className="onboarding"><Head title="Make yourself at home"/><header><Brand/><button className="text-button" onClick={()=>f.post('/onboarding')}>Skip for now<ArrowRight size={15}/></button></header><main className="onboarding-card"><div className="step-indicator">{titles.map((_,i)=><span className={i<=step?'done':''} key={i}/>)}</div><div className="eyebrow">GETTING ACQUAINTED · {step+1} OF 4</div><h1>{titles[step]}</h1><p className="muted">A few details to make this space feel like yours. You can change these later.</p>
+    <form onSubmit={e=>{e.preventDefault();step<3?setStep(step+1):f.post('/onboarding')}}>
+    {step===0&&<Field label="Display name"><input autoFocus required maxLength={80} value={f.data.name} onChange={e=>f.setData('name',e.target.value)} placeholder="Your name"/></Field>}
+    {step===1&&<div className="choice-grid">{[{key:'discover',label:'Discover',body:'Get to know the plants around me',icon:Compass},{key:'grow',label:'Grow',body:'Care for my own little green world',icon:Sprout},{key:'research',label:'Research',body:'Look closer and keep field notes',icon:BookOpen},{key:'connect',label:'Connect',body:'Learn alongside other plant people',icon:Users}].map(({key,label,body,icon:Icon})=><button type="button" className={'choice '+(f.data.purpose===key?'selected':'')} key={key} onClick={()=>f.setData('purpose',key)}><Icon size={22}/><strong>{label}</strong><small>{body}</small></button>)}</div>}
+    {step===2&&<div className="stack-form"><Field label="Your experience"><CustomSelect value={f.data.experience} onChange={value=>f.setData('experience',value)}><option value="beginner">Just getting started</option><option value="enthusiast">An enthusiastic plant person</option><option value="experienced">An experienced grower or researcher</option></CustomSelect></Field><div className="field"><span>Plant interests · optional</span><div className="tag-options">{interests.map(x=><button type="button" className={'tag-option '+(f.data.interests.includes(x)?'selected':'')} key={x} onClick={()=>f.setData('interests',f.data.interests.includes(x)?f.data.interests.filter(i=>i!==x):[...f.data.interests,x])}>{x}</button>)}</div></div></div>}
+    {step===3&&<div className="stack-form"><Field label="Municipality or city · optional" hint="A general area only. No GPS permission is needed."><input maxLength={120} value={f.data.municipality} onChange={e=>f.setData('municipality',e.target.value)} placeholder="e.g. Lipa City"/></Field><DiscoveryPreference checked={f.data.discovery_enabled} onChange={checked=>f.setData('discovery_enabled',checked)}/></div>}
+    <ErrorBox error={Object.values(f.errors).join(' ')}/><div className="form-actions">{step>0&&<Button type="button" variant="secondary" onClick={()=>setStep(step-1)}><ArrowLeft size={16}/>Back</Button>}<Button type="submit" busy={f.processing}>{step===3?'Open my workspace':'Continue'}<ArrowRight size={16}/></Button></div></form></main><footer>Room to grow. Space to discover.</footer></div>;
+}

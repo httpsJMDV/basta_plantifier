@@ -1,0 +1,9 @@
+import {useEffect,useRef,useState} from 'react';
+import {Camera as CameraIcon} from 'lucide-react';
+import {Modal,Button,ErrorBox} from './UI';
+export default function Camera({onCapture,onClose}:{onCapture:(file:File)=>void;onClose:()=>void}){
+    const video=useRef<HTMLVideoElement>(null);const [error,setError]=useState('');const [ready,setReady]=useState(false);
+    useEffect(()=>{let stream:MediaStream|null=null;let active=true;(async()=>{try{if(!navigator.mediaDevices?.getUserMedia)throw new Error('Camera access needs a supported browser and a secure connection. You can upload a photo instead.');const s=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'}},audio:false});if(!active){s.getTracks().forEach(t=>t.stop());return}stream=s;if(video.current){video.current.srcObject=s;await video.current.play();setReady(true)}}catch(e){if(active)setError(e instanceof Error?e.message:'Camera permission was denied. Upload a photo instead.')}})();return()=>{active=false;stream?.getTracks().forEach(t=>t.stop())}},[]);
+    function capture(){const v=video.current;if(!v||!v.videoWidth)return;const c=document.createElement('canvas');const scale=Math.min(1,1800/Math.max(v.videoWidth,v.videoHeight));c.width=Math.round(v.videoWidth*scale);c.height=Math.round(v.videoHeight*scale);c.getContext('2d')?.drawImage(v,0,0,c.width,c.height);c.toBlob(b=>{if(b){onCapture(new File([b],'plant-capture.jpg',{type:'image/jpeg'}));onClose()}},'image/jpeg',0.88)}
+    return <Modal title="Take a closer look" onClose={onClose}><p className="muted">Frame the whole plant, then add close-ups of leaves or flowers in a follow-up.</p><ErrorBox error={error}/><video ref={video} playsInline muted className="camera-video"/><div className="form-actions"><Button variant="secondary" onClick={onClose}>Cancel</Button><Button disabled={!ready} onClick={capture}><CameraIcon size={17}/>Capture photo</Button></div></Modal>
+}

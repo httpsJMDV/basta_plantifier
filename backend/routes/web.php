@@ -1,0 +1,112 @@
+<?php
+
+use App\Http\Controllers\AdminController;
+use App\Http\Controllers\AuthController;
+use App\Http\Controllers\CommunityController;
+use App\Http\Controllers\ExportController;
+use App\Http\Controllers\MapController;
+use App\Http\Controllers\MediaController;
+use App\Http\Controllers\MessageController;
+use App\Http\Controllers\PeopleController;
+use App\Http\Controllers\PlantController;
+use App\Http\Controllers\ProfilePhotoController;
+use App\Http\Controllers\ReportController;
+use App\Http\Controllers\WorkspaceController;
+use App\Models\User;
+use Illuminate\Foundation\Auth\EmailVerificationRequest;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Route;
+use Inertia\Inertia;
+
+Route::get('/', fn () => redirect(auth()->check() ? '/workspace' : '/login'));
+Route::middleware('guest')->group(function () {
+    Route::get('/login', [AuthController::class, 'show'])->name('login');
+    Route::post('/login', [AuthController::class, 'login'])->middleware('throttle:login');
+    Route::get('/register', [AuthController::class, 'show'])->name('register');
+    Route::post('/register', [AuthController::class, 'register'])->middleware('throttle:register');
+    Route::get('/forgot-password', [AuthController::class, 'show'])->name('password.request');
+    Route::post('/forgot-password', [AuthController::class, 'forgot'])->middleware('throttle:login');
+    Route::get('/reset-password/{token}', [AuthController::class, 'show'])->name('password.reset');
+    Route::post('/reset-password', [AuthController::class, 'reset'])->middleware('throttle:login');
+});
+Route::get('/auth/google', [AuthController::class, 'google'])->middleware('throttle:login');
+Route::get('/auth/google/callback', [AuthController::class, 'googleCallback']);
+Route::middleware('auth')->group(function () {
+    Route::post('/logout', [AuthController::class, 'logout']);
+    Route::get('/onboarding', fn () => Inertia::render('Onboarding'));
+    Route::post('/onboarding', [AuthController::class, 'onboarding']);
+    Route::get('/verify-email', fn () => Inertia::render('Auth', ['mode' => 'verification', 'googleEnabled' => false, 'status' => session('status')]))->name('verification.notice');
+    Route::get('/verify-email/{id}/{hash}', function (EmailVerificationRequest $r) {
+        $r->fulfill();
+
+        return redirect('/workspace')->with('success', 'Email verified.');
+    })->middleware(['signed', 'throttle:6,1'])->name('verification.verify');
+    Route::post('/email/verification-notification', function (Request $r) {
+        $r->user()->sendEmailVerificationNotification();
+
+        return back()->with('status', 'Verification link sent.');
+    })->middleware('throttle:6,1')->name('verification.send');
+    Route::get('/media/{media}', [MediaController::class, 'show']);
+    Route::middleware('onboarded')->group(function () {
+        Route::get('/workspace/{conversation?}', [WorkspaceController::class, 'index'])->name('workspace');
+        Route::post('/chat', [WorkspaceController::class, 'send'])->middleware(['throttle:ai', 'throttle:uploads']);
+        Route::post('/conversations/{conversation}/retry', [WorkspaceController::class, 'retry'])->middleware('throttle:ai');
+        Route::patch('/conversations/{conversation}', [WorkspaceController::class, 'rename'])->middleware('throttle:write');
+        Route::delete('/conversations/{conversation}', [WorkspaceController::class, 'destroy']);
+        Route::post('/chat-messages/{message}/save', [WorkspaceController::class, 'save'])->middleware('throttle:write');
+        Route::post('/chat-messages/{message}/corrections', [WorkspaceController::class, 'correction'])->middleware('throttle:write');
+        Route::get('/collection', [PlantController::class, 'index']);
+        Route::get('/collection/{plant}', [PlantController::class, 'show']);
+        Route::post('/plants', [PlantController::class, 'store'])->middleware('throttle:uploads');
+        Route::post('/plants/{plant}', [PlantController::class, 'update'])->middleware('throttle:uploads');
+        Route::delete('/plants/{plant}', [PlantController::class, 'destroy']);
+        Route::post('/plants/{plant}/observations', [PlantController::class, 'observe'])->middleware('throttle:uploads');
+        Route::patch('/plants/{plant}/observations/{observation}', [PlantController::class, 'updateObservation'])->middleware('throttle:write');
+        Route::delete('/plants/{plant}/observations/{observation}', [PlantController::class, 'deleteObservation']);
+        Route::get('/notes', [PlantController::class, 'notes']);
+        Route::post('/notes', [PlantController::class, 'saveNote'])->middleware('throttle:write');
+        Route::patch('/notes/{note}', [PlantController::class, 'saveNote'])->middleware('throttle:write');
+        Route::delete('/notes/{note}', [PlantController::class, 'deleteNote']);
+        Route::get('/map', [MapController::class, 'index']);
+        Route::post('/pins', [MapController::class, 'save'])->middleware('throttle:write');
+        Route::patch('/pins/{pin}', [MapController::class, 'save'])->middleware('throttle:write');
+        Route::delete('/pins/{pin}', [MapController::class, 'destroy']);
+        Route::post('/exports', [ExportController::class, 'download'])->middleware('throttle:write');
+        Route::get('/community', [CommunityController::class, 'index']);
+        Route::post('/posts', [CommunityController::class, 'store'])->middleware(['throttle:posts', 'throttle:uploads']);
+        Route::patch('/posts/{post}', [CommunityController::class, 'update'])->middleware('throttle:write');
+        Route::delete('/posts/{post}', [CommunityController::class, 'destroy']);
+        Route::post('/posts/{post}/comments', [CommunityController::class, 'comment'])->middleware('throttle:write');
+        Route::post('/posts/{post}/close', [CommunityController::class, 'accept'])->middleware('throttle:write');
+        Route::delete('/comments/{comment}', [CommunityController::class, 'deleteComment']);
+        Route::post('/comments/{comment}/vote', [CommunityController::class, 'vote'])->middleware('throttle:write');
+        Route::post('/stories', [CommunityController::class, 'story'])->middleware('throttle:uploads');
+        Route::delete('/stories/{story}', [CommunityController::class, 'deleteStory']);
+        Route::get('/people', [PeopleController::class, 'index']);
+        Route::get('/people/{user}', [PeopleController::class, 'profile']);
+        Route::post('/people/{target}/connections', [PeopleController::class, 'act'])->middleware('throttle:write');
+        Route::get('/messages/{thread?}', [MessageController::class, 'index'])->whereNumber('thread');
+        Route::post('/messages/start/{target}', [MessageController::class, 'start'])->middleware('throttle:write');
+        Route::post('/messages/{thread}', [MessageController::class, 'send'])->middleware(['throttle:write', 'throttle:uploads']);
+        Route::get('/shares/{share}', [MessageController::class, 'share']);
+        Route::delete('/shares/{share}', [MessageController::class, 'revoke']);
+        Route::post('/reports', [ReportController::class, 'store'])->middleware('throttle:write');
+        Route::get('/settings', function (Request $r) {
+            return Inertia::render('Settings', ['googleEnabled' => (bool) (config('services.google.client_id') && config('services.google.client_secret')), 'blocked' => User::whereIn('id', DB::table('relationships')->where('user_id', $r->user()->id)->where('kind', 'block')->pluck('target_id'))->get(['id', 'name'])]);
+        });
+        Route::patch('/settings', [AuthController::class, 'profile'])->middleware('throttle:write');
+        Route::post('/settings/photo', [ProfilePhotoController::class, 'store'])->middleware('throttle:uploads');
+        Route::delete('/settings/photo', [ProfilePhotoController::class, 'destroy'])->middleware('throttle:write');
+    });
+    Route::get('/admin/mfa', [AdminController::class, 'mfa']);
+    Route::post('/admin/mfa', [AdminController::class, 'verifyMfa'])->middleware('throttle:login');
+    Route::prefix('admin')->middleware('superadmin')->group(function () {
+        Route::get('/', [AdminController::class, 'index']);
+        Route::post('/users/{user}', [AdminController::class, 'userAction'])->middleware('throttle:write');
+        Route::get('/reports/{report}/evidence', [AdminController::class, 'evidence']);
+        Route::post('/reports/{report}', [AdminController::class, 'resolve'])->middleware('throttle:write');
+        Route::post('/settings', [AdminController::class, 'settings'])->middleware('throttle:write');
+        Route::post('/corrections/{correction}', [AdminController::class, 'correction'])->middleware('throttle:write');
+    });
+});

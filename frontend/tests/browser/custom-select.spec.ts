@@ -1,0 +1,53 @@
+import {test,expect} from '@playwright/test';
+import {randomUUID} from 'node:crypto';
+
+test('custom selects support keyboards, modal menus, saved values and mobile',async({page},testInfo)=>{
+    const errors:string[]=[];page.on('pageerror',error=>errors.push(error.message));
+    await page.goto('/register');
+    await page.getByLabel('Your name',{exact:true}).fill('Select Explorer');
+    await page.getByLabel('Email address').fill('select-'+randomUUID()+'@example.test');
+    await page.getByLabel('Password',{exact:true}).fill('Plants-'+randomUUID());
+    await page.getByLabel('Confirm password').fill(await page.getByLabel('Password',{exact:true}).inputValue());
+    await page.getByRole('button',{name:'Create my account'}).click();
+    await page.getByRole('button',{name:'Skip for now'}).click();
+    await expect(page).toHaveURL(/workspace/);
+    await page.goto('/settings');
+    const privacy=page.getByRole('combobox',{name:'Who can send me friend requests?'});
+    await privacy.focus();await privacy.press('ArrowDown');await privacy.press('End');await privacy.press('Enter');
+    await expect(privacy).toHaveText('Nobody');
+    await page.getByRole('button',{name:'Save changes'}).click();
+    await expect(page.getByText('Settings saved.')).toBeVisible();
+    await page.reload();await expect(privacy).toHaveText('Nobody');
+    await privacy.click();await expect(page.getByRole('listbox')).toBeVisible();
+    await page.getByRole('heading',{name:'Profile & Settings'}).click();
+    await expect(page.getByRole('listbox')).toHaveCount(0);
+
+    await page.goto('/collection');
+    await page.getByRole('button',{name:'Add a plant',exact:true}).click();
+    const relationship=page.getByRole('combobox',{name:'Your relationship'});
+    await relationship.click();await expect(page.getByRole('option',{name:'Growing',exact:true})).toBeVisible();
+    await relationship.press('Escape');
+    await expect(page.getByRole('listbox')).toHaveCount(0);await expect(page.getByRole('dialog')).toBeVisible();
+    await relationship.press('w');await relationship.press('Enter');await expect(relationship).toHaveText('Wishlist');
+    await relationship.click();await page.getByRole('option',{name:'Growing',exact:true}).click();
+    await page.getByLabel('Common or personal name').fill('Dropdown test fern');
+    await page.getByRole('button',{name:'Save record'}).click();
+    await expect(page.getByRole('heading',{name:'Dropdown test fern'}).first()).toBeVisible();
+    await page.goto('/collection');
+    const filter=page.getByRole('combobox',{name:'Filter plant collection'});
+    await filter.click();await page.getByRole('option',{name:'Growing',exact:true}).click();
+    await expect(page).toHaveURL(/filter=growing/);
+    await expect(page.getByRole('heading',{name:'Dropdown test fern'})).toBeVisible();
+
+    await page.setViewportSize({width:390,height:844});
+    await page.getByRole('button',{name:'Add a plant',exact:true}).click();
+    await relationship.click();
+    const menu=page.getByRole('listbox');await expect(menu).toBeVisible();
+    const bounds=await menu.boundingBox();expect(bounds).not.toBeNull();
+    expect(bounds!.x).toBeGreaterThanOrEqual(0);expect(bounds!.x+bounds!.width).toBeLessThanOrEqual(390);
+    expect(bounds!.y).toBeGreaterThanOrEqual(0);expect(bounds!.y+bounds!.height).toBeLessThanOrEqual(844);
+    await page.screenshot({path:testInfo.outputPath('custom-select-mobile.png')});
+    await page.getByRole('option',{name:'Researching',exact:true}).click();
+    await expect(relationship).toHaveText('Researching');
+    expect(errors).toEqual([]);
+});

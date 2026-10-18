@@ -1,0 +1,11 @@
+import CustomSelect from './CustomSelect';
+import {useState} from 'react';
+import {Download,ShieldCheck} from 'lucide-react';
+import {Modal,Field,Button,ErrorBox} from './UI';
+import type {Plant} from '../types';
+import {useAction} from '../lib';
+export default function ExportDialog({plants,onClose}:{plants:Plant[];onClose:()=>void}){
+    const [ids,setIds]=useState(plants.map(p=>p.id));const [format,setFormat]=useState('pdf');const a=useAction();
+    async function download(){const token=decodeURIComponent(document.cookie.split('; ').find(c=>c.startsWith('XSRF-TOKEN='))?.split('=').slice(1).join('=')??'');const r=await fetch('/exports',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json','X-XSRF-TOKEN':token,Accept:'application/json'},body:JSON.stringify({ids,format})});if(!r.ok){const e=await r.json();throw new Error(e.message??'Export failed.')}const blob=await r.blob();const url=URL.createObjectURL(blob);const anchor=document.createElement('a');anchor.href=url;anchor.download='plantifier-records.'+format;anchor.click();setTimeout(()=>URL.revokeObjectURL(url),10000);onClose()}
+    return <Modal title="Export botanical records" onClose={onClose}><p className="muted">Choose from the records on this page. Search or filter your collection first to narrow the scope.</p><div className="export-list">{plants.map(p=><label className="checkbox" key={p.id}><input type="checkbox" checked={ids.includes(p.id)} onChange={e=>setIds(e.target.checked?[...ids,p.id]:ids.filter(x=>x!==p.id))}/><span>{p.common_name}{p.scientific_name&&<small><i>{p.scientific_name}</i></small>}</span></label>)}</div><Field label="File format"><CustomSelect value={format} onChange={value=>setFormat(value)}><option value="pdf">PDF · field sheets and observations</option><option value="csv">CSV · record fields for spreadsheets</option></CustomSelect></Field><p className="privacy-note"><ShieldCheck size={18}/>Exports omit locations, private notes, credentials, and linked private content. Images are not included in this version.</p><ErrorBox error={a.error}/><div className="form-actions"><Button variant="secondary" onClick={onClose}>Cancel</Button><Button busy={a.busy} disabled={!ids.length} onClick={()=>a.run(download)}><Download size={17}/>Export {ids.length} records</Button></div></Modal>
+}

@@ -1,6 +1,6 @@
 # PlantifierAI implementation tracker
 
-Local-only build for October 24, 2026. The master blueprint is the source of scope. No Git repository has been initialized.
+Local demonstration build for October 24, 2026. Team coding is now active in the existing repository. The master blueprint defines the scope; `amaru.md` is the current non-admin handoff. Historical progress notes below may describe earlier states and must be checked against the current code.
 
 ## Integration order
 

@@ -19,7 +19,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
 
-Route::get('/', fn () => redirect(auth()->check() ? '/workspace' : '/login'));
+Route::get('/', fn () => auth()->check() ? redirect('/workspace') : Inertia::render('Landing'))->name('home');
 Route::middleware('guest')->group(function () {
     Route::get('/login', [AuthController::class, 'show'])->name('login');
     Route::post('/login', [AuthController::class, 'login'])->middleware('throttle:login');

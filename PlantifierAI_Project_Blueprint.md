@@ -1,8 +1,9 @@
 # PlantifierAI — Master Project Blueprint (Local-First)
 
-**Version:** 4 · **Presentation:** Saturday morning, October 24, 2026  
+**Version:** 6 · **Presentation:** Saturday morning, October 24, 2026
+
 **Product:** Responsive web platform, desktop and mobile browsers; **not** a native mobile application.  
-**Development policy:** **NO GIT YET.** Build, integrate, and test locally first. No `git init`, commits, remotes, GitHub account switching, or branch setup required during development. GitHub handoff is a later decision.  
+**Development policy:** Team development is now active. The former “NO GIT YET” restriction is retired. Coordinate changes in the existing shared repository; preserve current code, history, local data, and credentials. This document does not authorize automatic commits, pushes, or deployments.
 **Scope:** 20 selected user-facing feature areas, one dedicated Admin System, and shared security architecture. No rigid day-by-day schedule.
 
 > This document defines intended behavior and implementation contracts. A feature described here is not automatically implemented. Favor a reliable connected flow over disconnected demo screens.
@@ -38,13 +39,13 @@ PlantifierAI is a botanical discovery and community workspace: identify a plant 
 | Backend | Laravel/PHP; controllers, Form Requests, Policies, service classes |
 | Database | MySQL with migrations and relational constraints |
 | Auth | Laravel session authentication, Google OAuth via Socialite |
-| AI | Groq **currently available image-capable model**, called only by Laravel via replaceable provider interface |
+| AI | Pl@ntNet for photo identification and scoring; Groq for text explanations and conversation; optional Claude fallback on Groq quota errors. Backend-only credentials. |
 | Realtime | Laravel Reverb + Echo, authorized private channels |
 | Maps | Leaflet and OpenStreetMap-based tiles; obey tile provider policy |
 | Images | Laravel Storage; private/public separation |
 | Tooling | Composer, Node/npm, Vite, local PHP/MySQL/Reverb |
 
-**Connectivity:** Groq, Google OAuth, and online tiles need internet even if the app runs locally. Camera/geolocation require permission and browser secure-context rules; `localhost` on a laptop is not the same origin as its LAN IP on a phone. The presentation is localhost-only; no production hosting, public domain, or deployment work is assumed. Check Groq's actual model availability/quotas before coding; a provider is not a specific vision model.
+**Connectivity:** Pl@ntNet, Groq, optional Claude, Google OAuth, geocoding, and online tiles need internet even if the app runs locally. Camera/geolocation require permission and browser secure-context rules; `localhost` on a laptop is not the same origin as its LAN IP on a phone. The presentation is localhost-only; no production hosting, public domain, or deployment work is assumed. Check Groq's actual model availability/quotas before coding; a provider is not a specific vision model.
 
 ## 3. Detailed feature specifications (20)
 
@@ -53,22 +54,24 @@ Each module should have proper loading, empty, success, validation, permission-d
 ### 01 — First-time onboarding
 - First successful login shows a brief, skippable flow: preferred display name (“What should we call you?”), purpose (discover/grow/research/connect), experience level, optional plant interests.
 - Optional location discovery: manual city/municipality selection or opt-in approximate location; **not** mandatory GPS.
-- Persist completion/version and preferences; editing later in Settings; never loop users through onboarding on each login.
+- Persist completion/version and preferences; edit purpose, experience and interests later in Settings; connect them to useful shortcuts, explanation detail and opt-in suggestions as specified in `amaru.md`. Never loop users through onboarding on each login.
+- Display names: up to 20 characters, letters and spaces only, with matching backend validation and safe handling of existing/Google-created names.
 
 ### 02 — Authentication and Google sign-in
 - Email/password registration/login, verification where appropriate, password reset, logout, profile editing, Google OAuth.
-- Validate uniqueness, password rules, and OAuth state; account linking must not silently merge unrelated accounts.
+- Validate uniqueness, password rules, and OAuth state; account linking must not silently merge unrelated accounts. Settings distinguishes old-password changes for established local credentials from emailed set/reset links for Google-only accounts, and shows an already-linked Google modal. See `amaru.md` for account-capability and token-flow requirements.
 - Laravel sessions, throttling, session regeneration, protected routes; only one Super Admin created separately.
 
 ### 03 — AI Workspace and chat history
 - Conversational center with message bubbles/blocks, multiline composer, upload/camera affordances, sending/streaming or pending state.
 - Sidebar: New Chat, searchable recent conversations, auto-title with manual rename, reopen and delete with confirmation.
-- Right Session Timeline lists important events within current chat, not all chats. Clicking an event scrolls to the related message.
+- Add a complete owner-only Chat History page and functional sidebar filters; search is not limited to the recent-preview cap. Status/archive, activity range, grouping and sorting must have real backend behavior.
+- Right Session Timeline lists important events within current chat, not all chats. Clicking an event scrolls to the related message. Its events scroll independently of the fixed collection/note footer. AI Workspace provides a Help action explaining identification, generated text, purpose and confirmed authorship.
 - Persist messages in MySQL. Context sent to AI is bounded/summarized; deletion and saved Plant Records have distinct lifecycles.
 
 ### 04 — Plant image identification
 - Browser image upload and `getUserMedia` camera capture where supported; preview and remove before submit.
-- Backend validates/re-encodes image, calls a vision-capable model, normalizes result into common/scientific name when supportable, possible family, traits, habitat, care, safety/ecological notes, and uncertainty.
+- Backend validates/re-encodes up to three photos of the same plant (4 MB each) and sends them to Pl@ntNet for names, family, scores, and alternatives. Groq receives the structured result as text and supplies descriptions, care, safety notes, and follow-up answers; it must not independently identify or override the species. Preserve the existing configurable writing styles and quota fallback.
 - Permit unidentified/ambiguous results and alternative candidates. Do not fabricate confidence percentages, certainty, or unsupported scientific claims.
 - User can ask follow-ups and save a result as a Plant Record; provider errors and quotas must not delete user content.
 
@@ -85,11 +88,12 @@ Each module should have proper loading, empty, success, validation, permission-d
 
 ### 07 — Notes & Journal
 - Standalone notes with title/body, creation/edit dates, search and optional links to plant/pin/chat.
+- Explicit Groq writing-polish/formalization/summarization actions preview changes before applying; preserve facts and drafts. Attach up to five authorized private photos per note, 5 MB each, with backend validation and adequate request-body allowance.
 - Draft/autosave where practical; private by default. User can turn selected chat content into a note.
 - Journal entries may be chronological; note ownership enforced in every read/write route.
 
 ### 08 — Community posts and comments
-- Feed with text, images, optional linked public Plant Record, author, timestamp, comments, reactions if included.
+- Feed with text, images, optional linked public Plant Record, author, timestamp, threaded replies and persisted post/comment reactions such as Fascinating, Crazy and Loved It. Keep social reactions separate from identification-support votes. Show the latest comment/reply preview with expandable paginated discussion.
 - Create/edit/delete own posts, pagination, reporting, blocking, moderation status.
 - Public posts never implicitly expose a private linked record or exact private location.
 
@@ -160,7 +164,7 @@ Use a reusable **Plant Record** with related images, AI identification provenanc
 
 ## 4. Administration: exactly ONE Super Admin
 
-**Hard rule:** Exactly one Super Admin in the system; no public admin signup, no additional admin roles for this project. Create with a protected Laravel setup command and enforce the singleton at database and server authorization levels (not only frontend). Prevent accidental deletion and define a protected recovery/replacement procedure. `marubalmes` is assigned the Admin workstream for later collaboration, **not automatically the actual Super Admin account holder**.
+**Hard rule:** Exactly one Super Admin in the system; no public admin signup, no additional admin roles for this project. Create with a protected Laravel setup command and enforce the singleton at database and server authorization levels (not only frontend). Prevent accidental deletion and define a protected recovery/replacement procedure. King builds Admin Part 1 first using [king.md](king.md); Liam builds Admin Part 2 after the foundation handoff using [liam.md](liam.md). Each owns four of the eight admin areas. Developer assignments do **not** identify the actual Super Admin account holder.
 
 **Admin modules:**
 1. Dashboard: users, plant records, report queue, AI usage/error summaries, recent admin events.
@@ -241,24 +245,20 @@ Use accessible contrast, visible focus rings, and state colors that are not conv
 6. Motion is functional (panel open, upload progress, timeline navigation), subtle, and respects reduced-motion settings.
 7. Mobile layouts are intentionally designed, not desktop screens merely shrunk.
 
-## 7. NO GIT YET — local development and later one-repository handoff
+## 7. Team collaboration and handoffs
 
-**Immediate policy:** Develop on one computer, in one project directory. No Git initialization, commit, push, branch setup, account switching, or repository deletion required while coding. Keep safe local backups/versioned ZIP snapshots; never ZIP `.env`, keys, credentials, private database dumps, `node_modules`, or `vendor` for sharing.
+The earlier single-computer/no-Git plan and provisional five-module allocations are superseded. The existing repository is https://github.com/httpsJMDV/basta_plantifier . Do not initialize a replacement repository, recreate the project, delete history, or overwrite teammates' work.
 
-**Later, once code is integrated:** create **one** repository owned by `httpJMDV`. The owner will decide the precise GitHub handoff with classmates. ZIP delivery of source code is allowed; a ZIP without `.git` has no Git history, but does not itself establish authorship. Do not create four unrelated repositories or delete a repository merely to alter contribution statistics. Preserve truthful records of actual coding, testing, reviewing, documentation, and presentations.
+- **Integration lead:** the project owner coordinates shared components, database changes, and reviews.
+- **Amaru:** continue the unfinished non-admin work specified in [amaru.md](amaru.md). That handoff contains the October 19 requests, current implementation evidence, proposed preference connections, and completion checks.
+- **King — Admin Part 1, first:** [king.md](king.md) assigns admin access/MFA, shared admin layout and dashboard, user management, and platform settings/announcements. King supplies the security/layout/contracts before Liam begins dependent implementation.
+- **Liam — Admin Part 2, second:** [liam.md](liam.md) assigns moderation, public-map review, AI/corrections monitoring, and Audit/Security Center including backup status. Liam extends King's reviewed foundation. These four areas stay outside Amaru's scope.
+- **Shared boundary:** Amaru owns user-facing reporting; Liam owns the admin queue, evidence and decisions; King provides shared security, audit-writing primitives and layout. All consume the same report storage/contract. Coordinate changes rather than creating duplicate queues, access systems or admin accounts.
+- Coordinate ownership before changing shared routes, migrations, authentication, broadcasting, or common UI. Use additive migrations and focused reviews; preserve the existing database and chat history. Use isolated test data for automated tests.
+- Keep credentials, local databases, private uploads, dependencies, caches, and generated builds out of shared source. Share placeholder configuration and setup instructions instead of local secrets.
+- Keep truthful records of actual implementation, testing, review, and documentation. New coding assignments are not claims about previous authorship.
 
-### Responsibility allocation (planning, not Git branches yet)
-
-| Assigned account | Five feature areas |
-|---|---|
-| `httpJMDV` | 02 Authentication; 01 Onboarding; 03 AI Workspace; 04 Identification; 15 AI corrections |
-| `KingOrdona` | 05 Collection; 06 Gallery & Location; 14 Map search; 17 Growth journal; 18 Export |
-| `liamrubiales-dev` | 07 Notes; 08 Community feed; 11 Stories; 13 Identification requests; 16 Verification |
-| `marubalmes` | 09 Messenger; 10 Sharing; 12 Profiles/Following; 19 Friends; 20 Friend suggestions |
-
-**Additional dedicated workstream:** `marubalmes` — the complete Admin System. `httpJMDV` remains integration lead. These are intended areas of responsibility and future review/presentation, not claims about who has already authored code.
-
-**Integration contracts before modules:** auth and profiles → Plant Record schema → AI/collection/map/notes → Community and friendship → Messenger/sharing → admin moderation. Agree on migrations, routes, policy naming, and shared UI components before dependent work. Track module state locally in a simple checklist (not a fixed schedule).
+The restored first landing-page design remains the accepted version. Do not redo its spacing/copy cleanup as part of the handoff. Git operations and deployment still require an explicit task; this update changes documentation only.
 
 ## 8. Local demonstration acceptance criteria
 

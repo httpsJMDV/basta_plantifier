@@ -1,6 +1,6 @@
 # PlantifierAI
 
-Local botanical workspace for the October 24, 2026 presentation. The master blueprint defines the full intended scope. No Git repository or deployment has been created.
+Local botanical workspace for the October 24, 2026 presentation. The master blueprint defines the full intended scope. The shared Git repository is configured; deployment has not been requested. See `amaru.md` for the remaining non-admin work.
 
 ## Folder layout
 

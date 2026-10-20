@@ -12,11 +12,11 @@ class ClaudeProvider
         return (bool) (config('botanical.claude.fallback_enabled') && config('botanical.claude.key'));
     }
 
-    public function complete(array $context, int $maxTokens): array
+    public function complete(array $context, int $maxTokens, ?array $schemaOverride = null): array
     {
         $system = array_shift($context)['content'];
         $properties = array_fill_keys(['traits', 'habitat', 'care', 'safety'], ['type' => 'string']);
-        $schema = [
+        $schema = $schemaOverride ?? [
             'type' => 'object', 'additionalProperties' => false,
             'required' => ['response', 'subject_scientific_name', 'details'],
             'properties' => [

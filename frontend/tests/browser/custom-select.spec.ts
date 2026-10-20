@@ -1,3 +1,5 @@
+import {resetQaRateLimits} from './qa-throttles';
+test.beforeEach(resetQaRateLimits);
 import {test,expect} from '@playwright/test';
 import {randomUUID} from 'node:crypto';
 

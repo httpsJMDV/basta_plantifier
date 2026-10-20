@@ -3,10 +3,14 @@
 use App\Http\Controllers\AdminController;
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\CommunityController;
+use App\Http\Controllers\DiscussionController;
 use App\Http\Controllers\ExportController;
+use App\Http\Controllers\HistoryController;
+use App\Http\Controllers\LocationController;
 use App\Http\Controllers\MapController;
 use App\Http\Controllers\MediaController;
 use App\Http\Controllers\MessageController;
+use App\Http\Controllers\NoteAssistController;
 use App\Http\Controllers\PeopleController;
 use App\Http\Controllers\PlantController;
 use App\Http\Controllers\ProfilePhotoController;
@@ -32,7 +36,12 @@ Route::middleware('guest')->group(function () {
 });
 Route::get('/auth/google', [AuthController::class, 'google'])->middleware('throttle:login');
 Route::get('/auth/google/callback', [AuthController::class, 'googleCallback']);
+Route::get('/account/reset-password/{token}', [AuthController::class, 'show'])->name('account.password.reset');
+Route::post('/account/reset-password', [AuthController::class, 'reset'])->middleware('throttle:6,1');
 Route::middleware('auth')->group(function () {
+    Route::post('/location/municipality', [LocationController::class, 'municipality'])->middleware('throttle:6,1');
+    Route::post('/settings/password', [AuthController::class, 'changePassword'])->middleware('throttle:login');
+    Route::post('/settings/password-link', [AuthController::class, 'passwordLink'])->middleware('throttle:6,1');
     Route::post('/logout', [AuthController::class, 'logout']);
     Route::get('/onboarding', fn () => Inertia::render('Onboarding'));
     Route::post('/onboarding', [AuthController::class, 'onboarding']);
@@ -49,6 +58,8 @@ Route::middleware('auth')->group(function () {
     })->middleware('throttle:6,1')->name('verification.send');
     Route::get('/media/{media}', [MediaController::class, 'show']);
     Route::middleware('onboarded')->group(function () {
+        Route::get('/workspace/history', [HistoryController::class, 'index']);
+        Route::patch('/conversations/{conversation}/archive', [HistoryController::class, 'archive'])->middleware('throttle:write');
         Route::get('/workspace/{conversation?}', [WorkspaceController::class, 'index'])->name('workspace');
         Route::post('/chat', [WorkspaceController::class, 'send'])->middleware(['throttle:ai', 'throttle:uploads']);
         Route::post('/conversations/{conversation}/retry', [WorkspaceController::class, 'retry'])->middleware('throttle:ai');
@@ -65,6 +76,7 @@ Route::middleware('auth')->group(function () {
         Route::patch('/plants/{plant}/observations/{observation}', [PlantController::class, 'updateObservation'])->middleware('throttle:write');
         Route::delete('/plants/{plant}/observations/{observation}', [PlantController::class, 'deleteObservation']);
         Route::get('/notes', [PlantController::class, 'notes']);
+        Route::post('/notes/assist', [NoteAssistController::class, 'suggest'])->middleware('throttle:ai');
         Route::post('/notes', [PlantController::class, 'saveNote'])->middleware('throttle:write');
         Route::patch('/notes/{note}', [PlantController::class, 'saveNote'])->middleware('throttle:write');
         Route::delete('/notes/{note}', [PlantController::class, 'deleteNote']);
@@ -77,13 +89,18 @@ Route::middleware('auth')->group(function () {
         Route::post('/posts', [CommunityController::class, 'store'])->middleware(['throttle:posts', 'throttle:uploads']);
         Route::patch('/posts/{post}', [CommunityController::class, 'update'])->middleware('throttle:write');
         Route::delete('/posts/{post}', [CommunityController::class, 'destroy']);
-        Route::post('/posts/{post}/comments', [CommunityController::class, 'comment'])->middleware('throttle:write');
+        Route::post('/posts/{post}/comments', [DiscussionController::class, 'store'])->middleware('throttle:write');
+        Route::get('/posts/{post}/comments', [DiscussionController::class, 'index']);
+        Route::post('/reactions/{type}/{id}', [DiscussionController::class, 'react'])->middleware('throttle:write');
+        Route::post('/posts/{post}/reopen', [DiscussionController::class, 'reopen'])->middleware('throttle:write');
         Route::post('/posts/{post}/close', [CommunityController::class, 'accept'])->middleware('throttle:write');
         Route::delete('/comments/{comment}', [CommunityController::class, 'deleteComment']);
         Route::post('/comments/{comment}/vote', [CommunityController::class, 'vote'])->middleware('throttle:write');
+        Route::get('/stories/{story}', [CommunityController::class, 'storyDetail']);
         Route::post('/stories', [CommunityController::class, 'story'])->middleware('throttle:uploads');
         Route::delete('/stories/{story}', [CommunityController::class, 'deleteStory']);
         Route::get('/people', [PeopleController::class, 'index']);
+        Route::get('/people/{user}/connections', [PeopleController::class, 'connections']);
         Route::get('/people/{user}', [PeopleController::class, 'profile']);
         Route::post('/people/{target}/connections', [PeopleController::class, 'act'])->middleware('throttle:write');
         Route::get('/messages/{thread?}', [MessageController::class, 'index'])->whereNumber('thread');
@@ -91,7 +108,7 @@ Route::middleware('auth')->group(function () {
         Route::post('/messages/{thread}', [MessageController::class, 'send'])->middleware(['throttle:write', 'throttle:uploads']);
         Route::get('/shares/{share}', [MessageController::class, 'share']);
         Route::delete('/shares/{share}', [MessageController::class, 'revoke']);
-        Route::post('/reports', [ReportController::class, 'store'])->middleware('throttle:write');
+        Route::post('/reports', [ReportController::class, 'store'])->middleware('throttle:6,1');
         Route::get('/settings', function (Request $r) {
             return Inertia::render('Settings', ['googleEnabled' => (bool) (config('services.google.client_id') && config('services.google.client_secret')), 'blocked' => User::whereIn('id', DB::table('relationships')->where('user_id', $r->user()->id)->where('kind', 'block')->pluck('target_id'))->get(['id', 'name'])]);
         });

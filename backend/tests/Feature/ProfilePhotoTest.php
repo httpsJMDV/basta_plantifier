@@ -92,7 +92,7 @@ class ProfilePhotoTest extends TestCase
     public function test_avatar_cannot_be_replaced_by_mass_assigning_a_media_id_in_profile_settings(): void
     {
         $user = $this->explorer();
-        $this->actingAs($user)->patchJson('/settings', ['name' => $user->name, 'discovery_enabled' => false, 'friend_request_privacy' => 'everyone', 'avatar_media_id' => 123])->assertOk();
+        $this->actingAs($user)->patchJson('/settings', ['name' => 'Profile Explorer', 'discovery_enabled' => false, 'friend_request_privacy' => 'everyone', 'avatar_media_id' => 123])->assertOk();
         $this->assertNull($user->fresh()->avatar_media_id);
     }
 }

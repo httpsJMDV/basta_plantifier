@@ -14,5 +14,5 @@ if ($activeListeners | Where-Object { $_.Port -eq $listenPort }) {
 if ($Reverb) { & php artisan reverb:start --host=127.0.0.1 --port=8084 }
 else {
     if (!(Test-Path -LiteralPath 'public/build/manifest.json')) { throw 'Run npm.cmd install and npm.cmd run build from frontend/ first.' }
-    & php -d upload_max_filesize=5M -d post_max_size=16M artisan serve --host=127.0.0.1 --port=$Port --tries=0
+    & php -d upload_max_filesize=5M -d post_max_size=32M artisan serve --host=127.0.0.1 --port=$Port --tries=0
 }

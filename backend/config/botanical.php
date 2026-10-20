@@ -1,6 +1,7 @@
 <?php
 
 return [
+    'creators' => array_values(array_filter(array_map('trim', explode('|', env('APP_CREATORS', 'Del Valle, Jay Mark|Rubiales, Jef Liam|Ordona, King Anthony|Balmes, Amaru Jay'))))),
     'groq_key' => env('GROQ_API_KEY'),
     'model' => env('GROQ_MODEL', 'qwen/qwen3.8-27b'),
     'max_completion_tokens' => (int) env('GROQ_MAX_COMPLETION_TOKENS', 768),

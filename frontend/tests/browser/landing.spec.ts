@@ -1,3 +1,5 @@
+import {resetQaRateLimits} from './qa-throttles';
+test.beforeEach(resetQaRateLimits);
 import {test,expect} from '@playwright/test';
 
 test('public landing page has working navigation, responsive layouts and accessible mobile controls',async({page},testInfo)=>{

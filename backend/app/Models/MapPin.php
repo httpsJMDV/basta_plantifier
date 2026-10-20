@@ -6,7 +6,7 @@ use Illuminate\Database\Eloquent\Model;
 
 class MapPin extends Model
 {
-    protected $fillable = ['user_id', 'plant_record_id', 'title', 'area', 'description', 'latitude', 'longitude', 'visibility', 'sensitive', 'observed_on'];
+    protected $fillable = ['media_id', 'user_id', 'plant_record_id', 'title', 'area', 'description', 'latitude', 'longitude', 'visibility', 'sensitive', 'observed_on'];
 
     protected $hidden = ['latitude', 'longitude'];
 

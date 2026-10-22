@@ -5,6 +5,8 @@ use App\Services\SocialGraph;
 use Illuminate\Support\Facades\Broadcast;
 use Illuminate\Support\Facades\DB;
 
+Broadcast::channel('inbox.{id}', fn (User $user, int $id): bool => $user->id === $id && ! $user->suspended_at);
+
 Broadcast::channel('thread.{id}', function (User $user, int $id) {
     if ($user->suspended_at) {
         return false;

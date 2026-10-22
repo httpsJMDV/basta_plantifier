@@ -1,3 +1,5 @@
+import {resetQaRateLimits} from './qa-throttles';
+test.beforeEach(resetQaRateLimits);
 import {test,expect,type Page} from '@playwright/test';
 import {randomUUID} from 'node:crypto';
 async function register(page:Page,name:string,email:string,password:string){
@@ -5,7 +7,7 @@ async function register(page:Page,name:string,email:string,password:string){
 }
 test('desktop and mobile personal journey, escaped content and two-account live messenger',async({browser,page},testInfo)=>{
     const failures:string[]=[];page.on('pageerror',e=>failures.push(e.message));
-    const email='browser-'+randomUUID()+'@example.test';const password='Plants-'+randomUUID();const tag=randomUUID().slice(0,8);const name='Browser Explorer '+tag;const secondName='Browser Second '+tag;const postText='Hello from the browser field study. '+tag;const pinTitle='My private garden <img src=x onerror=window.mapXss=1>'; 
+    const email='browser-'+randomUUID()+'@example.test';const password='Plants-'+randomUUID();const tag=randomUUID().replace(/[^a-f]/g,'').slice(0,6);const name='Browser '+tag;const secondName='Explorer '+tag;const postText='Hello from the browser field study. '+tag;const pinTitle='My private garden <img src=x onerror=window.mapXss=1>';
     await page.goto('/login');await page.screenshot({path:testInfo.outputPath('login-desktop.png'),fullPage:true});
     await register(page,name,email,password);
     await expect(page.getByRole('heading',{name:'Hello, Browser.'})).toBeVisible();

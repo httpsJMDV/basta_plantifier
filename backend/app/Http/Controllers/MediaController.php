@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\Media;
+use App\Models\User;
 use App\Services\Sharing;
 use App\Services\SocialGraph;
 use Illuminate\Http\Request;
@@ -15,8 +16,9 @@ class MediaController extends Controller
     {
         $uid = $r->user()->id;
         $allowed = $media->user_id === $uid;
-        if (! $allowed && ! $graph->blocked($uid, $media->user_id)) {
-            $allowed = DB::table('users')->where('id', $media->user_id)->where('avatar_media_id', $media->id)->whereNull('suspended_at')->exists();
+        if (! $allowed && ! $graph->blocked($uid, $media->user_id) && ! DB::table('users')->where('id', $media->user_id)->whereNotNull('suspended_at')->exists()) {
+            $avatarOwner = User::where('id', $media->user_id)->where('avatar_media_id', $media->id)->whereNull('suspended_at')->first();
+            $allowed = $avatarOwner && $graph->canViewProfileSection($uid, $avatarOwner, 'profile_visibility');
             if (! $allowed) {
                 $allowed = DB::table('posts')->where('media_id', $media->id)->where('status', 'published')->exists();
             }
@@ -33,13 +35,19 @@ class MediaController extends Controller
                 }
             }
             if (! $allowed) {
-                foreach (DB::table('shares')->join('plant_records', 'plant_records.id', '=', 'shares.plant_record_id')->where('plant_records.media_id', $media->id)->whereNull('revoked_at')->select('shares.*')->get() as $share) {
-                    if ($sharing->visible($share, $uid)) {
+                $allowed = DB::table('map_pins')->where('media_id', $media->id)->whereIn('visibility', ['public_approximate', 'public_exact'])->exists();
+            }
+            if (! $allowed) {
+                foreach (DB::table('shares')->where('user_id', $media->user_id)->whereNull('revoked_at')->get() as $share) {
+                    if (($sharing->preview($share, $uid)['media_url'] ?? null) === '/media/'.$media->id) {
                         $allowed = true;
                         break;
                     }
                 }
             }
+        }
+        if (! $allowed && ! $graph->blocked($uid, $media->user_id) && ! DB::table('users')->where('id', $media->user_id)->whereNotNull('suspended_at')->exists()) {
+            $allowed = DB::table('stories')->join('plant_records', 'plant_records.id', '=', 'stories.plant_record_id')->whereColumn('plant_records.user_id', 'stories.user_id')->where('plant_records.media_id', $media->id)->where('stories.expires_at', '>', now())->where(fn ($query) => $query->where('stories.audience', 'public')->orWhere('stories.user_id', $uid)->orWhereIn('stories.user_id', $graph->friendIds($uid)))->exists();
         }
         abort_unless($allowed, 404);
         abort_unless(Storage::disk('local')->exists($media->path), 404);

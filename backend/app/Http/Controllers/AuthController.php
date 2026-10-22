@@ -4,10 +4,12 @@ namespace App\Http\Controllers;
 
 use App\Http\Requests\RegisterRequest;
 use App\Models\User;
+use App\Rules\DisplayName;
 use Illuminate\Auth\Events\PasswordReset;
 use Illuminate\Auth\Events\Registered;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Password;
 use Illuminate\Support\Str;
@@ -21,12 +23,17 @@ class AuthController extends Controller
 {
     public function show(Request $r)
     {
+        if ($r->routeIs('password.reset') || $r->routeIs('account.password.reset')) {
+            return Inertia::render('AccountPasswordReset', ['token' => $r->route('token'), 'email' => $r->query('email', '')]);
+        }
+
         return Inertia::render('Auth', ['mode' => $r->route()->getName(), 'googleEnabled' => (bool) (config('services.google.client_id') && config('services.google.client_secret')), 'token' => $r->route('token'), 'email' => $r->query('email', ''), 'status' => $r->session()->get('status')]);
     }
 
     public function register(RegisterRequest $r)
     {
         $user = User::create($r->safe()->only(['name', 'email', 'password']));
+        $user->forceFill(['local_password_set_at' => now()])->save();
         event(new Registered($user));
         Auth::login($user);
         $r->session()->regenerate();
@@ -41,6 +48,10 @@ class AuthController extends Controller
             throw ValidationException::withMessages(['email' => 'These credentials do not match our records.']);
         }
         $r->session()->regenerate();
+
+        if (! $r->user()->local_password_set_at) {
+            $r->user()->forceFill(['local_password_set_at' => now()])->save();
+        }
 
         return redirect()->intended('/workspace');
     }
@@ -66,19 +77,46 @@ class AuthController extends Controller
     {
         $data = $r->validate(['token' => 'required', 'email' => 'required|email', 'password' => ['required', 'confirmed', PasswordRule::min(10)->letters()->numbers()]]);
         $status = Password::reset($data, function (User $u, string $p) {
-            $u->forceFill(['password' => Hash::make($p), 'remember_token' => Str::random(60)])->save();
+            $u->forceFill(['password' => Hash::make($p), 'remember_token' => Str::random(60), 'local_password_set_at' => now()])->save();
+            DB::table('sessions')->where('user_id', $u->id)->delete();
             event(new PasswordReset($u));
         });
         if ($status !== Password::PASSWORD_RESET) {
             throw ValidationException::withMessages(['email' => __($status)]);
         }
 
+        Auth::logout();
+        $r->session()->invalidate();
+        $r->session()->regenerateToken();
+
         return redirect('/login')->with('status', 'Your password has been reset.');
+    }
+
+    public function changePassword(Request $r)
+    {
+        $data = $r->validate(['current_password' => ['required', 'current_password'], 'password' => ['required', 'confirmed', PasswordRule::min(10)->letters()->numbers()]]);
+        $r->user()->forceFill(['password' => Hash::make($data['password']), 'local_password_set_at' => now(), 'remember_token' => Str::random(60)])->save();
+        Password::deleteToken($r->user());
+        $r->session()->regenerate();
+        DB::table('sessions')->where('user_id', $r->user()->id)->where('id', '!=', $r->session()->getId())->delete();
+
+        return response()->json(['message' => 'Password changed. Other sessions have been signed out.']);
+    }
+
+    public function passwordLink(Request $r)
+    {
+        $status = Password::sendResetLink(['email' => $r->user()->email]);
+        if ($status !== Password::RESET_LINK_SENT) {
+            throw ValidationException::withMessages(['email' => __($status)]);
+        }
+
+        return response()->json(['message' => 'A secure password link has been sent to your account email.']);
     }
 
     public function onboarding(Request $r)
     {
-        $data = $r->validate(['name' => 'required|string|max:80', 'purpose' => 'nullable|in:discover,grow,research,connect', 'experience' => 'nullable|in:beginner,enthusiast,experienced', 'municipality' => 'nullable|string|max:120', 'interests' => 'nullable|array|max:12', 'interests.*' => 'string|max:60', 'discovery_enabled' => 'sometimes|boolean']);
+        $r->merge(['name' => DisplayName::normalize((string) $r->name)]);
+        $data = $r->validate(['name' => DisplayName::rules(), 'purpose' => 'nullable|in:discover,grow,research,connect', 'experience' => 'nullable|in:beginner,enthusiast,experienced', 'municipality' => 'nullable|string|max:120', 'interests' => 'nullable|array|max:12', 'interests.*' => 'string|max:60', 'discovery_enabled' => 'sometimes|boolean']);
         $r->user()->fill($data)->forceFill(['onboarded_at' => now()])->save();
 
         return redirect('/workspace');
@@ -86,7 +124,8 @@ class AuthController extends Controller
 
     public function profile(Request $r)
     {
-        $data = $r->validate(['name' => 'required|string|max:80', 'username' => ['nullable', 'alpha_dash', 'min:3', 'max:30', Rule::unique('users')->ignore($r->user()->id)], 'bio' => 'nullable|string|max:600', 'municipality' => 'nullable|string|max:120', 'interests' => 'nullable|array|max:12', 'interests.*' => 'string|max:60', 'discovery_enabled' => 'required|boolean', 'friend_request_privacy' => 'required|in:everyone,friends-of-friends,nobody']);
+        $r->merge(['name' => DisplayName::normalize((string) $r->name)]);
+        $data = $r->validate(['name' => DisplayName::rules(), 'username' => ['nullable', 'alpha_dash', 'min:3', 'max:30', Rule::unique('users')->ignore($r->user()->id)], 'purpose' => 'sometimes|nullable|in:discover,grow,research,connect', 'experience' => 'sometimes|nullable|in:beginner,enthusiast,experienced', 'profile_visibility' => 'sometimes|in:everyone,friends,private', 'connections_visibility' => 'sometimes|in:everyone,friends,private', 'activity_visibility' => 'sometimes|in:everyone,friends,private', 'bio' => 'nullable|string|max:600', 'municipality' => 'nullable|string|max:120', 'interests' => 'nullable|array|max:12', 'interests.*' => 'string|max:60', 'discovery_enabled' => 'required|boolean', 'friend_request_privacy' => 'required|in:everyone,friends-of-friends,nobody']);
         $r->user()->update($data);
 
         return response()->json(['message' => 'Profile saved.']);
@@ -94,6 +133,9 @@ class AuthController extends Controller
 
     public function google(Request $r)
     {
+        if ($r->user()?->google_id) {
+            return redirect('/settings')->with('success', 'Your Google account is already linked.');
+        }
         abort_unless(config('services.google.client_id') && config('services.google.client_secret'), 503, 'Google sign-in has not been configured.');
         if ($r->user()) {
             $r->session()->put('google_link_user', $r->user()->id);
@@ -129,7 +171,7 @@ class AuthController extends Controller
             return redirect('/login')->with('error', 'An account already uses this email. Sign in with your password, then link Google from Settings.');
         }
         if (! $user) {
-            $user = User::create(['name' => mb_substr($google->getName() ?: 'Plant explorer', 0, 80), 'email' => $google->getEmail(), 'password' => Str::random(64)])->forceFill(['google_id' => $google->getId(), 'email_verified_at' => now()]);
+            $user = User::create(['name' => (mb_strlen($google->getName() ?? '') <= 255 ? ($google->getName() ?: 'Plant explorer') : 'Plant explorer'), 'email' => $google->getEmail(), 'password' => Str::random(64)])->forceFill(['google_id' => $google->getId(), 'email_verified_at' => now()]);
             $user->save();
         }
         abort_if((bool) $user->suspended_at, 403, 'This account is suspended.');

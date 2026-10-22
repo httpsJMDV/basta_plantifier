@@ -12,7 +12,7 @@ class User extends Authenticatable implements MustVerifyEmail
 {
     use HasFactory, Notifiable;
 
-    protected $fillable = ['name', 'email', 'password', 'username', 'bio', 'municipality', 'interests', 'purpose', 'experience', 'discovery_enabled', 'friend_request_privacy'];
+    protected $fillable = ['name', 'email', 'password', 'username', 'bio', 'municipality', 'interests', 'purpose', 'experience', 'discovery_enabled', 'friend_request_privacy', 'profile_visibility', 'connections_visibility', 'activity_visibility'];
 
     protected $hidden = ['password', 'remember_token', 'google_id', 'totp_secret', 'recovery_codes', 'last_totp_counter'];
 
@@ -25,7 +25,7 @@ class User extends Authenticatable implements MustVerifyEmail
 
     protected function casts(): array
     {
-        return ['password' => 'hashed', 'email_verified_at' => 'datetime', 'onboarded_at' => 'datetime', 'suspended_at' => 'datetime', 'interests' => 'array', 'discovery_enabled' => 'boolean', 'totp_secret' => 'encrypted', 'recovery_codes' => 'encrypted:array'];
+        return ['password' => 'hashed', 'local_password_set_at' => 'datetime', 'email_verified_at' => 'datetime', 'onboarded_at' => 'datetime', 'suspended_at' => 'datetime', 'interests' => 'array', 'discovery_enabled' => 'boolean', 'totp_secret' => 'encrypted', 'recovery_codes' => 'encrypted:array'];
     }
 
     public function isAdmin(): bool

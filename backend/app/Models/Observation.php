@@ -6,7 +6,7 @@ use Illuminate\Database\Eloquent\Model;
 
 class Observation extends Model
 {
-    protected $fillable = ['body', 'observed_on', 'height_cm', 'media_id'];
+    protected $fillable = ['map_pin_id', 'body', 'observed_on', 'height_cm', 'media_id'];
 
     public function plant()
     {

@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Models\Conversation;
 use App\Models\PlantRecord;
 use App\Models\User;
+use App\Services\GroqProvider;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Request;
@@ -364,5 +365,29 @@ class HybridIdentificationTest extends TestCase
         $this->assertStringContainsString('Claude has no available API credits', $reply->body);
         $this->assertStringNotContainsString('claude-test-secret', $reply->body);
         $this->assertSame(1, $conversation->messages()->where('role', 'user')->count());
+    }
+
+    public function test_experience_changes_explanation_detail_without_changing_style_or_identification_authority(): void
+    {
+        $prompts = [];
+        Http::fake(function (Request $request) use (&$prompts) {
+            $prompts[] = $request['messages'][0]['content'];
+
+            return Http::response($this->explanation(null, false));
+        });
+        $user = auth()->user();
+        foreach (['beginner', 'experienced'] as $experience) {
+            $user->update(['experience' => $experience]);
+            $conversation = $user->conversations()->create(['title' => 'Explain plant growth']);
+            $conversation->messages()->create(['role' => 'user', 'body' => 'How do plants grow?', 'response_style' => 'formal']);
+            app(GroqProvider::class)->respond($conversation);
+        }
+        $this->assertStringContainsString('Explain botanical terms with short', $prompts[0]);
+        $this->assertStringContainsString('Use precise botanical detail', $prompts[1]);
+        foreach ($prompts as $prompt) {
+            $this->assertStringContainsString('polished, professional language', $prompt);
+            $this->assertStringContainsString('Pl@ntNet alone identifies', $prompt);
+            $this->assertStringContainsString('cannot change identity, confidence, safety or uncertainty', $prompt);
+        }
     }
 }

@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\User;
 use App\Services\SocialGraph;
 use Illuminate\Http\Request;
+use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\DB;
 use Inertia\Inertia;
 
@@ -38,7 +39,8 @@ class PeopleController extends Controller
                 $q->whereRaw('1 = 0');
             }
         }
-        $people = $q->orderBy('name')->limit(100)->get()->map(function ($u) use ($uid, $friends, $tab, $r, $graph) {
+        $q->where(fn ($visibility) => $visibility->where('profile_visibility', 'everyone')->orWhere(fn ($friendsOnly) => $friendsOnly->where('profile_visibility', 'friends')->whereIn('id', $friends)));
+        $people = $q->orderBy('name')->get()->map(function ($u) use ($uid, $friends, $tab, $r, $graph) {
             $mutual = count(array_intersect($friends, $graph->friendIds($u->id)));
             $u->mutual_friends = $mutual;
             $u->reasons = [];
@@ -71,7 +73,10 @@ class PeopleController extends Controller
             $people = $people->sortByDesc('score')->values();
         }
 
-        return Inertia::render('People', ['people' => $people, 'relationships' => $relationships, 'tab' => $tab, 'query' => $r->input('q', ''), 'discoveryEnabled' => $r->user()->discovery_enabled]);
+        $page = max(1, (int) $r->input('page', 1));
+        $peoplePage = new LengthAwarePaginator($people->forPage($page, 24)->values(), $people->count(), 24, $page, ['path' => $r->url(), 'query' => $r->query()]);
+
+        return Inertia::render('People', ['peoplePage' => $peoplePage, 'people' => $peoplePage->items(), 'relationships' => $relationships, 'tab' => $tab, 'query' => $r->input('q', ''), 'discoveryEnabled' => $r->user()->discovery_enabled]);
     }
 
     public function act(Request $r, User $target, SocialGraph $graph)
@@ -125,8 +130,32 @@ class PeopleController extends Controller
 
     public function profile(Request $r, User $user, SocialGraph $graph)
     {
-        abort_if($graph->blocked($r->user()->id, $user->id) || (bool) $user->suspended_at, 404);
+        $viewer = $r->user()->id;
+        abort_if($graph->blocked($viewer, $user->id) || (bool) $user->suspended_at || ! $graph->canViewProfileSection($viewer, $user, 'profile_visibility'), 404);
+        $posts = DB::table('posts')->where('user_id', $user->id)->where('status', 'published');
+        $activityVisible = $graph->canViewProfileSection($viewer, $user, 'activity_visibility');
+        if (! $activityVisible) {
+            $posts->whereRaw('1=0');
+        }
 
-        return Inertia::render('Profile', ['profile' => ['id' => $user->id, 'name' => $user->name, 'avatar_url' => $user->avatar_url, 'username' => $user->username, 'bio' => $user->bio, 'municipality' => $user->municipality, 'interests' => $user->interests ?? []], 'posts' => DB::table('posts')->where('user_id', $user->id)->where('status', 'published')->latest()->paginate(15)]);
+        return Inertia::render('Profile', ['profile' => ['id' => $user->id, 'name' => $user->name, 'avatar_url' => $user->avatar_url, 'username' => $user->username, 'bio' => $user->bio, 'municipality' => $user->municipality, 'interests' => $user->interests ?? []], 'posts' => $posts->latest()->paginate(15), 'activityVisible' => $activityVisible, 'connectionsVisible' => $graph->canViewProfileSection($viewer, $user, 'connections_visibility')]);
+    }
+
+    public function connections(Request $request, User $user, SocialGraph $graph)
+    {
+        $viewer = $request->user()->id;
+        abort_unless(! $user->suspended_at && ! $graph->blocked($viewer, $user->id) && $graph->canViewProfileSection($viewer, $user, 'profile_visibility') && $graph->canViewProfileSection($viewer, $user, 'connections_visibility'), 404);
+        $data = $request->validate(['kind' => 'required|in:followers,following']);
+        $mine = $data['kind'] === 'followers' ? 'target_id' : 'user_id';
+        $other = $data['kind'] === 'followers' ? 'user_id' : 'target_id';
+        $people = DB::table('relationships')->join('users', 'users.id', '=', 'relationships.'.$other)->where('relationships.'.$mine, $user->id)->where('relationships.kind', 'follow')->whereNull('users.suspended_at')->whereNotIn('users.id', $graph->blockedIds($viewer))->where(fn ($query) => $query->where('users.profile_visibility', 'everyone')->orWhere('users.id', $viewer)->orWhere(fn ($friendsOnly) => $friendsOnly->where('users.profile_visibility', 'friends')->whereIn('users.id', $graph->friendIds($viewer))))->select('users.id', 'users.name', 'users.username', 'users.avatar_media_id')->orderBy('users.name')->paginate(20)->withQueryString();
+        $people->through(function ($person) {
+            $person->avatar_url = $person->avatar_media_id ? '/media/'.$person->avatar_media_id : null;
+            unset($person->avatar_media_id);
+
+            return $person;
+        });
+
+        return response()->json($people);
     }
 }

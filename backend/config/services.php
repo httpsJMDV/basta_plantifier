@@ -1,6 +1,7 @@
 <?php
 
 return [
+    'geocoding' => ['url' => env('GEOCODING_URL', 'https://nominatim.openstreetmap.org/reverse'), 'user_agent' => env('GEOCODING_USER_AGENT', 'PlantifierAI/1.0 (botanical workspace)')],
     'postmark' => ['key' => env('POSTMARK_API_KEY')],
     'resend' => ['key' => env('RESEND_API_KEY')],
     'ses' => ['key' => env('AWS_ACCESS_KEY_ID'), 'secret' => env('AWS_SECRET_ACCESS_KEY'), 'region' => env('AWS_DEFAULT_REGION', 'us-east-1')],

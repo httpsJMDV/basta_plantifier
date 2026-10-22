@@ -2,10 +2,16 @@
 
 namespace App\Services;
 
+use App\Models\User;
 use Illuminate\Support\Facades\DB;
 
 class SocialGraph
 {
+    public function canViewProfileSection(int $viewer, User $owner, string $section): bool
+    {
+        return $viewer === $owner->id || $owner->{$section} === 'everyone' || ($owner->{$section} === 'friends' && in_array($viewer, $this->friendIds($owner->id), true));
+    }
+
     public function blocked(int $a, int $b): bool
     {
         return DB::table('relationships')->where('kind', 'block')->where(fn ($q) => $q->where(fn ($q) => $q->where('user_id', $a)->where('target_id', $b))->orWhere(fn ($q) => $q->where('user_id', $b)->where('target_id', $a)))->exists();
@@ -23,6 +29,6 @@ class SocialGraph
 
     public function canReadThread(int $id, object $thread): bool
     {
-        return in_array($id, [$thread->first_user_id, $thread->second_user_id], true) && ! $this->blocked($thread->first_user_id, $thread->second_user_id);
+        return in_array($id, [$thread->first_user_id, $thread->second_user_id], true) && ! $this->blocked($thread->first_user_id, $thread->second_user_id) && ! DB::table('users')->whereIn('id', [$thread->first_user_id, $thread->second_user_id])->whereNotNull('suspended_at')->exists();
     }
 }

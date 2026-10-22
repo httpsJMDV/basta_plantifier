@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\PlantRecord;
 use App\Services\ImageStore;
 use App\Services\Sharing;
 use App\Services\SocialGraph;
@@ -25,35 +26,41 @@ class CommunityController extends Controller
             $q->whereIn('posts.user_id', DB::table('relationships')->where('user_id', $uid)->where('kind', 'follow')->pluck('target_id'));
         }
         $posts = $q->orderByDesc('posts.id')->paginate(15)->withQueryString();
-        $posts->through(function ($p) use ($excluded, $uid, $sharing) {
+        $posts->through(function ($p) use ($uid, $sharing) {
             $p->avatar_url = $p->avatar_media_id ? '/media/'.$p->avatar_media_id : null;
-            $p->comments = DB::table('comments')->join('users', 'users.id', '=', 'comments.user_id')->where('post_id', $p->id)->whereNotIn('comments.user_id', $excluded)->select('comments.*', 'users.name', 'users.avatar_media_id')->orderBy('comments.id')->limit(50)->get()->map(function ($c) use ($uid) {
-                $c->avatar_url = $c->avatar_media_id ? '/media/'.$c->avatar_media_id : null;
-                $c->votes = DB::table('suggestion_votes')->where('comment_id', $c->id)->count();
-                $c->voted = DB::table('suggestion_votes')->where('comment_id', $c->id)->where('user_id', $uid)->exists();
-
-                return $c;
-            });
+            $discussion = app(DiscussionController::class);
+            $graph = app(SocialGraph::class);
+            $query = $discussion->comments($p->id, $uid, $graph);
+            $p->comment_count = (clone $query)->count();
+            $preview = $query->latest('comments.id')->first();
+            $p->comments = $preview ? [$discussion->format($preview, $uid, $graph)] : [];
+            $p->reactions = $discussion->reactions('post', $p->id, $uid);
             $p->shares = DB::table('shares')->where('post_id', $p->id)->get()->map(fn ($s) => $sharing->preview($s, $uid))->filter()->values();
 
             return $p;
         });
         $stories = DB::table('stories')->join('users', 'users.id', '=', 'stories.user_id')->where('expires_at', '>', now())->whereNotIn('stories.user_id', $excluded)->whereNull('users.suspended_at')->where(fn ($q) => $q->where('audience', 'public')->orWhere('stories.user_id', $uid)->orWhereIn('stories.user_id', $graph->friendIds($uid)))->select('stories.*', 'users.name')->latest('stories.id')->limit(40)->get();
 
-        return Inertia::render('Community', ['posts' => $posts, 'stories' => $stories, 'tab' => $r->input('tab', 'feed'), 'plants' => $r->user()->plants()->get(['id', 'common_name'])]);
+        $stories = $stories->map(function ($story) {
+            $story->plant_card = $this->storyPlant($story);
+
+            return $story;
+        });
+
+        return Inertia::render('Community', ['posts' => $posts, 'stories' => $stories, 'tab' => $r->input('tab', 'feed'), ...$sharing->options($r->user()->id), 'plants' => $r->user()->plants()->get(['id', 'common_name'])]);
     }
 
     public function store(Request $r, ImageStore $images, Sharing $sharing)
     {
-        $data = $r->validate(['body' => 'required|string|max:6000', 'kind' => 'required|in:post,identification', 'area' => 'nullable|string|max:160', 'image' => 'nullable|image|mimes:jpg,jpeg,png,webp|max:4096|dimensions:max_width=6000,max_height=6000', 'plant_record_id' => ['nullable', 'integer', Rule::exists('plant_records', 'id')->where('user_id', $r->user()->id)], 'share_confirmation' => $r->filled('plant_record_id') ? 'required|accepted' : 'nullable|boolean']);
+        $data = $r->validate(['body' => 'required|string|max:6000', 'kind' => 'required|in:post,identification', 'area' => 'nullable|string|max:160', 'image' => 'nullable|image|mimes:jpg,jpeg,png,webp|max:4096|dimensions:max_width=6000,max_height=6000', 'plant_record_id' => ['nullable', 'integer', Rule::exists('plant_records', 'id')->where('user_id', $r->user()->id)], 'share_confirmation' => $r->filled('plant_record_id') ? 'required|accepted' : 'nullable|boolean', ...$sharing->rules($r)]);
         if ($data['kind'] === 'identification') {
             $r->validate(['image' => 'required|image']);
         }
         $media = $r->hasFile('image') ? $images->put($r->file('image'), $r->user()->id) : null;
         DB::transaction(function () use ($r, $data, $media, $sharing) {
             $id = DB::table('posts')->insertGetId(['user_id' => $r->user()->id, 'body' => $data['body'], 'kind' => $data['kind'], 'area' => $data['area'] ?? null, 'media_id' => $media?->id, 'status' => 'published', 'created_at' => now(), 'updated_at' => now()]);
-            if (! empty($data['plant_record_id'])) {
-                $sharing->attach($r->user()->id, (int) $data['plant_record_id'], $id);
+            if (! empty($data['plant_record_id']) || ! empty($data['observation_id']) || ! empty($data['map_pin_id'])) {
+                $sharing->attachSelection($r->user()->id, $data, $id);
             }
         });
 
@@ -64,7 +71,7 @@ class CommunityController extends Controller
     {
         $p = DB::table('posts')->find($post);
         abort_unless($p && $p->user_id === $r->user()->id, 403);
-        $data = $r->validate(['body' => 'required|string|max:6000']);
+        $data = $r->validate(['body' => 'required|string|max:6000', 'area' => 'sometimes|nullable|string|max:160']);
         DB::table('posts')->where('id', $post)->update([...$data, 'updated_at' => now()]);
 
         return response()->json(['message' => 'Post updated.']);
@@ -130,11 +137,34 @@ class CommunityController extends Controller
 
     public function story(Request $r, ImageStore $images)
     {
-        $data = $r->validate(['image' => 'required|image|mimes:jpeg,jpg,png,webp|max:4096|dimensions:max_width=6000,max_height=6000', 'caption' => 'nullable|string|max:240', 'audience' => 'required|in:public,friends']);
+        $data = $r->validate(['plant_record_id' => ['nullable', 'integer', Rule::exists('plant_records', 'id')->where('user_id', $r->user()->id)], 'share_confirmation' => $r->filled('plant_record_id') ? 'required|accepted' : 'nullable|boolean', 'image' => 'required|image|mimes:jpeg,jpg,png,webp|max:4096|dimensions:max_width=6000,max_height=6000', 'caption' => 'nullable|string|max:240', 'audience' => 'required|in:public,friends']);
         $media = $images->put($r->file('image'), $r->user()->id);
-        DB::table('stories')->insert(['user_id' => $r->user()->id, 'media_id' => $media->id, 'caption' => $data['caption'] ?? null, 'audience' => $data['audience'], 'expires_at' => now()->addDay(), 'created_at' => now(), 'updated_at' => now()]);
+        DB::table('stories')->insert(['plant_record_id' => $data['plant_record_id'] ?? null, 'user_id' => $r->user()->id, 'media_id' => $media->id, 'caption' => $data['caption'] ?? null, 'audience' => $data['audience'], 'expires_at' => now()->addDay(), 'created_at' => now(), 'updated_at' => now()]);
 
         return response()->json(['message' => 'Story shared for 24 hours.']);
+    }
+
+    private function storyPlant(object $story): ?array
+    {
+        if (! $story->plant_record_id) {
+            return null;
+        }
+        $plant = PlantRecord::where('user_id', $story->user_id)->find($story->plant_record_id);
+        if (! $plant) {
+            return null;
+        }
+
+        return ['common_name' => $plant->common_name, 'scientific_name' => $plant->scientific_name, 'description' => $plant->description, 'care' => $plant->care, 'safety' => $plant->safety, 'media_url' => $plant->media_id ? '/media/'.$plant->media_id : null];
+    }
+
+    public function storyDetail(Request $request, int $story, SocialGraph $graph)
+    {
+        $item = DB::table('stories')->join('users', 'users.id', '=', 'stories.user_id')->where('stories.id', $story)->where('expires_at', '>', now())->whereNull('users.suspended_at')->select('stories.*', 'users.name')->first();
+        $viewer = $request->user()->id;
+        abort_unless($item && ! $graph->blocked($viewer, $item->user_id) && ($item->user_id === $viewer || $item->audience === 'public' || in_array($item->user_id, $graph->friendIds($viewer), true)), 404);
+        $item->plant_card = $this->storyPlant($item);
+
+        return response()->json($item);
     }
 
     public function deleteStory(Request $r, int $story)

@@ -1,0 +1,8 @@
+import {Head,Link,useForm} from '@inertiajs/react';
+import {Brand,Button,Field,ErrorBox} from '../components/UI';
+import {LockKeyhole} from 'lucide-react';
+
+export default function AccountPasswordReset({token,email}:{token:string;email:string}){
+    const form=useForm({token,email,password:'',password_confirmation:''});
+    return <div className="account-reset"><Head title="Reset password"/><Link href="/"><Brand/></Link><main className="settings-card"><LockKeyhole size={26}/><h1>Choose your password</h1><p>This secure link works even in a different browser. Use at least 10 characters, including letters and numbers.</p><form className="stack-form" onSubmit={event=>{event.preventDefault();form.post('/account/reset-password',{onFinish:()=>form.reset('password','password_confirmation')})}}><Field label="Account email"><input type="email" required autoComplete="email" value={form.data.email} onChange={event=>form.setData('email',event.target.value)}/></Field><Field label="New password"><input type="password" required minLength={10} autoComplete="new-password" value={form.data.password} onChange={event=>form.setData('password',event.target.value)}/></Field><Field label="Confirm new password"><input type="password" required autoComplete="new-password" value={form.data.password_confirmation} onChange={event=>form.setData('password_confirmation',event.target.value)}/></Field><ErrorBox error={Object.values(form.errors).join(' ')}/><Button busy={form.processing} type="submit">Save password</Button></form><p>If this link expired or was already used, <Link href="/forgot-password" className="text-link">request another link</Link>.</p><Link href="/login">Back to sign in</Link></main></div>;
+}

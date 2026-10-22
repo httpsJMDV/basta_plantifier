@@ -15,9 +15,11 @@ class ReportController extends Controller
         $subject = DB::table($table)->find($data['subject_id']);
         abort_unless($subject, 404);
         $uid = $r->user()->id;
+        $author = $data['subject_type'] === 'user' ? $subject->id : $subject->user_id;
+        abort_if($graph->blocked($uid, $author) || DB::table('users')->where('id', $author)->whereNotNull('suspended_at')->exists(), 404);
         if ($data['subject_type'] === 'message') {
             $thread = DB::table('threads')->find($subject->thread_id);
-            abort_unless($thread && in_array($uid, [$thread->first_user_id, $thread->second_user_id], true), 404);
+            abort_unless($thread && $graph->canReadThread($uid, $thread), 404);
         } elseif ($data['subject_type'] === 'pin') {
             abort_unless($subject->user_id === $uid || in_array($subject->visibility, ['public_approximate', 'public_exact']), 404);
         } elseif ($data['subject_type'] === 'story') {
@@ -27,6 +29,7 @@ class ReportController extends Controller
         } elseif ($data['subject_type'] === 'post') {
             abort_unless($subject->status === 'published', 404);
         }
+        abort_if(DB::table('reports')->where('user_id', $uid)->where('subject_type', $data['subject_type'])->where('subject_id', $data['subject_id'])->where('status', 'pending')->exists(), 409, 'Your report for this item is already awaiting review.');
         DB::table('reports')->insert(['user_id' => $uid, ...$data, 'status' => 'pending', 'created_at' => now(), 'updated_at' => now()]);
 
         return response()->json(['message' => 'Report submitted. Only the reported item is available to the moderation workflow.']);

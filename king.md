@@ -1,8 +1,34 @@
 # King — Admin Part 1: foundation and account operations
 
-Updated October 19, 2026. Presentation: October 24, 2026.
+Updated October 24, 2026. Presentation: October 24, 2026.
 
-**Build order: King first, then Liam.** This is an implementation assignment, not completed work. Build your four areas below, validate them, and hand the shared foundation to Liam using the completion gate in this file. Liam's remaining four areas are in [liam.md](liam.md). Amaru owns the non-admin application in [amaru.md](amaru.md).
+## Implementation status — October 24, 2026
+
+The owner took over both admin assignments and requested implementation in this checkout. Codex implemented both halves together; this is not a claim that King or Liam authored these changes. The original division below remains the scope reference. There is no remaining dependency on a classmate handoff.
+
+Implemented: a shared responsive admin layout; dashboard; searchable account directory and limited review; delivered, owner-only warning banners with acknowledgement; suspend/restore; report filters, scoped text/image evidence and decision history; public-location review; provider diagnostics and correction review; audit/security events; announcement preview/publish/clear; and the common AI maintenance switch. Exactly one protected Super Admin and MFA remain enforced. No production admin credentials were created.
+
+Shared implementation contracts:
+
+- UI: `frontend/src/components/AdminLayout.tsx`, `AdminUI.tsx`, `AdminReviews.tsx`, `AdminScreens.tsx`, and `frontend/src/adminTypes.ts`. Existing `/admin?section=...` routes remain, with `maps` added.
+- Security: `AdminSecurity::confirm(Request, password)`; `SecurityAudit::write(actorId, action, subject, metadata)`. Audit metadata accepts bounded allowlisted fields and excludes confirmation credentials and private request bodies.
+- New protected routes: `GET /admin/users/{user}`, `POST /admin/pins/{pin}`, and `GET /admin/reports/{report}/media`. Report images are available only through their reported item, never a general private-media browser.
+- Normal users acknowledge their own notices through `POST /settings/warnings/{warning}/acknowledge`. Shared props return only that account's unread notices. Correction review feedback appears beside its owner's original Workspace result.
+- Additive migrations: `2026_10_23_091509_complete_admin_operations` (warnings, decisions, comment visibility, correction review fields, usage diagnostics, backup records) and `2026_10_23_204147_ensure_avatar_media_foreign_key`. Both were applied without resetting the working database. A guard in the older avatar migration fixes its fresh-install reference to a not-yet-created media table; the additive repair supplies the deferred constraint. Existing records are preserved.
+- Security events include `auth.failed`, `admin.mfa_failed`, `admin.confirmation_failed`, `security.throttled`, and `security.upload_rejected`. Admin decisions retain the existing `admin.user.*`, `admin.report.*`, `admin.correction.*`, and `admin.settings.updated` names; location actions use `admin.pin.hide/generalize`.
+
+Backup operations are deliberately local and read-only in the admin UI. `plantifier:backup-status source|database|media --file=...` records an existing artifact outside the project, size and SHA-256; it does **not** claim a verified restore. Source ZIPs are inspected to reject environment/runtime/database content. `--failed` records a failed attempt.
+
+`plantifier:verify-restore restore_check --manifest=... --media-root=...` reads a separate `plantifier_restore_*` database and isolated restored media. Configure `RESTORE_DB_DATABASE` and, if different, `RESTORE_DB_HOST/PORT/USERNAME/PASSWORD` locally. Its JSON manifest contains `counts` for `users, conversations, chat_messages, plant_records, media` and `media_sha256` keyed by media ID. Expected values must come from the backup snapshot. Verification checks those counts, ownership relationships and restored media hashes; it never imports over the working database. This is a bounded rehearsal check, not a claim that every application workflow has been restored successfully.
+
+Verified in this checkout: production frontend build passed; the full backend suite passed **122 tests / 1,096 assertions** with the opt-in MySQL case skipped in that run. The separate isolated MySQL acceptance passed **1 test / 8 assertions**, including overlapping singleton inserts, protected membership/deletion and rejected self-suspension. **Three admin browser workflows passed**, covering all seven sections at desktop/tablet/mobile widths, actual MFA and one-use recovery re-verification, delivered notices, report-scoped evidence, decisions, public-pin generalization, correction feedback and announcement publishing/clearing. Provider calls in tests were faked; no paid requests were made. Backup/restore commands were exercised with temporary isolated fixtures, not the owner's production data.
+
+Reproduce from `backend/`: `php vendor/phpunit/phpunit/phpunit`; opt in to the isolated MySQL check with `$env:ADMIN_MYSQL_ACCEPTANCE='1'` and run `tests/Feature/MySqlAdminConstraintsTest.php`. Browser verification uses `AdminQaSeeder --env=amaru-qa` and port 8025 only. Never run that seeder against the working database.
+
+**Owner operations still pending:** choosing/creating or signing in to the real Super Admin, completing its authenticator enrollment, reviewing the UI, and performing a production backup/restore rehearsal. No live provider credit/quota checks or external notifications were sent. Provider balances remain unavailable; unrecorded backup status remains unrecorded. QA admin accounts, media and credentials are restricted to the isolated QA database.
+
+
+**Original build order: King, then Liam.** The owner subsequently took over both scopes. The implementation above supersedes the classmate handoff schedule; the original requirements below remain the acceptance reference.
 
 ## 1. Division of the eight admin areas
 
@@ -51,49 +77,49 @@ Existing code is not proof of full acceptance. For example, warning currently re
 
 ## 4. K1 — Admin access, MFA and common security
 
-- [ ] Verify normal users and guests cannot enter or call the admin area; test JSON mutations as well as page requests.
-- [ ] Preserve one-admin creation and protected same-account recovery. Check database constraints/triggers, concurrent creation attempts, protected deletion and attempts to suspend the singleton account. Do not change the singleton to a general role system.
-- [ ] Complete enrollment, password + TOTP verification, one-use recovery codes, expired admin sessions and reauthentication. Keep the current encrypted TOTP secret, hashed recovery codes and anti-replay counter protections.
-- [ ] Keep `/admin/mfa` reachable to the authenticated singleton before MFA completion, without allowing ordinary users to enroll as administrators. Do not accidentally protect initial enrollment with a middleware that requires enrollment first.
-- [ ] Clear pending secrets at the proper lifecycle points. Show plaintext setup/recovery material only in the intended enrollment/recovery flow, never in ordinary shared props, logs or screenshots.
-- [ ] Establish a shared server-side helper/service for sensitive-action reauthentication. Liam must reuse it; do not duplicate weaker password checks in each later module. Keep existing password policy/session behavior compatible with Amaru's account-password changes.
-- [ ] Define safe responses for stale MFA, invalid password, used code, unauthorized action and rate limiting. Expiry must not silently discard an unsaved admin decision.
-- [ ] Extract or formalize the current audit-writing helper for both developers. Retain the existing `audit_events` fields and safe metadata contract below; provide a tested interface Liam can use for decisions/security events.
+- [x] Verify normal users and guests cannot enter or call the admin area; test JSON mutations as well as page requests.
+- [x] Preserve one-admin creation and protected same-account recovery. Check database constraints/triggers, concurrent creation attempts, protected deletion and attempts to suspend the singleton account. Do not change the singleton to a general role system.
+- [x] Complete enrollment, password + TOTP verification, one-use recovery codes, expired admin sessions and reauthentication. Keep the current encrypted TOTP secret, hashed recovery codes and anti-replay counter protections.
+- [x] Keep `/admin/mfa` reachable to the authenticated singleton before MFA completion, without allowing ordinary users to enroll as administrators. Do not accidentally protect initial enrollment with a middleware that requires enrollment first.
+- [x] Clear pending secrets at the proper lifecycle points. Show plaintext setup/recovery material only in the intended enrollment/recovery flow, never in ordinary shared props, logs or screenshots.
+- [x] Establish a shared server-side helper/service for sensitive-action reauthentication. Liam must reuse it; do not duplicate weaker password checks in each later module. Keep existing password policy/session behavior compatible with Amaru's account-password changes.
+- [x] Define safe responses for stale MFA, invalid password, used code, unauthorized action and rate limiting. Expiry must not silently discard an unsaved admin decision.
+- [x] Extract or formalize the current audit-writing helper for both developers. Retain the existing `audit_events` fields and safe metadata contract below; provide a tested interface Liam can use for decisions/security events.
 
 **Acceptance:** test guests, ordinary accounts, the singleton before/after MFA, expiry, TOTP replay, recovery-code reuse, failed confirmation, concurrent singleton creation and protected self-actions. Run MySQL-specific constraint acceptance on an isolated MySQL test database, not only SQLite.
 
 ## 5. K2 — Shared admin layout and dashboard
 
-- [ ] Build one reusable admin layout and section navigation that Liam can extend. Reuse accessible shared primitives. Consider separating the six mixed sections in `Admin.tsx` into focused components within existing project folders, without rewriting working functionality.
-- [ ] Keep `/admin` and the existing `section` query routes working. Foundation sections are `dashboard`, `users`, `settings`; preserve links to existing sections during refactoring. Reserve `reports`, `maps`, `ai`, `audit` for Liam, with truthful availability while unfinished.
-- [ ] Create clear shared section headings, table containers, pagination, filter controls, confirmation/dialog structure and loading/empty/error states. Document their props for Liam.
-- [ ] Show real user/plant counts, pending reports, bounded AI-error summaries and recent administrative events. Label each time window and distinguish total from filtered counts.
-- [ ] Keep overview queries bounded and authorized. Do not dump private record bodies or raw user secrets into overview props merely to display counts.
-- [ ] Replace broken backup-document references with an explicit status integration point for Liam. Until verified records exist, show **Not recorded / Not yet verified**, not a completed backup claim.
-- [ ] Verify at 1440/1920 desktop, tablet and around 390px mobile, including wide tables, long names and short-height dialogs. Never solve overflow by making the fonts unreadably small.
+- [x] Build one reusable admin layout and section navigation that Liam can extend. Reuse accessible shared primitives. Consider separating the six mixed sections in `Admin.tsx` into focused components within existing project folders, without rewriting working functionality.
+- [x] Keep `/admin` and the existing `section` query routes working. Foundation sections are `dashboard`, `users`, `settings`; preserve links to existing sections during refactoring. Reserve `reports`, `maps`, `ai`, `audit` for Liam, with truthful availability while unfinished.
+- [x] Create clear shared section headings, table containers, pagination, filter controls, confirmation/dialog structure and loading/empty/error states. Document their props for Liam.
+- [x] Show real user/plant counts, pending reports, bounded AI-error summaries and recent administrative events. Label each time window and distinguish total from filtered counts.
+- [x] Keep overview queries bounded and authorized. Do not dump private record bodies or raw user secrets into overview props merely to display counts.
+- [x] Replace broken backup-document references with an explicit status integration point for Liam. Until verified records exist, show **Not recorded / Not yet verified**, not a completed backup claim.
+- [x] Verify at 1440/1920 desktop, tablet and around 390px mobile, including wide tables, long names and short-height dialogs. Never solve overflow by making the fonts unreadably small.
 
 **Acceptance:** dashboard counts change with isolated fixture data, navigation/pagination work, empty tables are readable, stale or unavailable data is labeled, and unauthorized users cannot fetch dashboard props.
 
 ## 6. K3 — User management
 
-- [ ] Extend name-only search to useful, bounded account search by name, username and email; add active/suspended filters and pagination with preserved query state.
-- [ ] Provide a limited account review showing permitted identity/status/join data and relevant warning/action history. Do not add a private-message, private-note or private-pin explorer.
-- [ ] Deliver warnings to the intended user through a persisted authenticated notification/banner or an equivalent agreed mechanism. The current `warn` action only writes an audit event. Coordinate Amaru's app shell changes before adding shared UI.
-- [ ] Require a reason and fresh confirmation for warning/suspend/restore. Record actor, target, action, time and reason without retaining plaintext confirmation passwords.
-- [ ] Suspension must invalidate applicable sessions and prevent protected actions. Coordinate Reverb/channel behavior with Amaru so an already-open messaging session does not bypass suspension. Restoring access does not erase the action history.
-- [ ] Preserve the protection against acting on the singleton admin. Do not silently create account deletion, impersonation, new admin roles or unrestricted password changes for other users.
-- [ ] Make repeated actions and stale account state predictable; avoid recording duplicate success when a mutation failed. Ensure the state change, audit record and warning notification have consistent transactional behavior.
+- [x] Extend name-only search to useful, bounded account search by name, username and email; add active/suspended filters and pagination with preserved query state.
+- [x] Provide a limited account review showing permitted identity/status/join data and relevant warning/action history. Do not add a private-message, private-note or private-pin explorer.
+- [x] Deliver warnings to the intended user through a persisted authenticated notification/banner or an equivalent agreed mechanism. The current `warn` action only writes an audit event. Coordinate Amaru's app shell changes before adding shared UI.
+- [x] Require a reason and fresh confirmation for warning/suspend/restore. Record actor, target, action, time and reason without retaining plaintext confirmation passwords.
+- [x] Suspension must invalidate applicable sessions and prevent protected actions. Coordinate Reverb/channel behavior with Amaru so an already-open messaging session does not bypass suspension. Restoring access does not erase the action history.
+- [x] Preserve the protection against acting on the singleton admin. Do not silently create account deletion, impersonation, new admin roles or unrestricted password changes for other users.
+- [x] Make repeated actions and stale account state predictable; avoid recording duplicate success when a mutation failed. Ensure the state change, audit record and warning notification have consistent transactional behavior.
 
 **Acceptance:** one user receives only their own warning; unrelated accounts cannot read it. Test search/filter pagination, wrong password, rejected self-suspension, suspended-session access and restore. Never use a teammate's live account as a suspension test fixture.
 
 ## 7. K4 — Platform settings and announcements
 
-- [ ] Retain the current `announcement` and `ai_paused` keys with explicit validation, bounds, confirmation and audited updates. Do not expose arbitrary environment editing through a settings form.
-- [ ] Implement announcement preview/publish/update/clear with plain-text safe rendering and a truthful persisted success state. Coordinate how ordinary users see it with Amaru.
-- [ ] Keep the AI pause switch functional across identification, generative follow-ups and new note-assistance endpoints. Amaru must connect note assistance to the same pause policy rather than bypassing it. Liam will display state/usage; he does not create a competing pause setting.
-- [ ] Existing conversations, photos and records remain saved/readable when AI is paused. Error/maintenance messages must explain what can be retried without discarding a draft.
-- [ ] Treat provider names/readiness as safe metadata, not secret settings. API keys, OAuth secrets, database/mail passwords and private Reverb credentials remain backend environment configuration.
-- [ ] Check reauthentication, MFA expiry, failed save, clearing an announcement and the appearance of published text on both desktop and mobile. Rendering user input as raw HTML is not needed.
+- [x] Retain the current `announcement` and `ai_paused` keys with explicit validation, bounds, confirmation and audited updates. Do not expose arbitrary environment editing through a settings form.
+- [x] Implement announcement preview/publish/update/clear with plain-text safe rendering and a truthful persisted success state. Coordinate how ordinary users see it with Amaru.
+- [x] Keep the AI pause switch functional across identification, generative follow-ups and new note-assistance endpoints. Amaru must connect note assistance to the same pause policy rather than bypassing it. Liam will display state/usage; he does not create a competing pause setting.
+- [x] Existing conversations, photos and records remain saved/readable when AI is paused. Error/maintenance messages must explain what can be retried without discarding a draft.
+- [x] Treat provider names/readiness as safe metadata, not secret settings. API keys, OAuth secrets, database/mail passwords and private Reverb credentials remain backend environment configuration.
+- [x] Check reauthentication, MFA expiry, failed save, clearing an announcement and the appearance of published text on both desktop and mobile. Rendering user input as raw HTML is not needed.
 
 ## 8. Contracts King must hand to Liam
 
@@ -117,13 +143,13 @@ Keep action routes behind the same guard even when splitting controllers. Agree 
 
 Liam may inspect/design tests beforehand, but starts dependent implementation **after King hands over a reviewed working foundation**. Do not use calendar time alone as the handoff signal.
 
-- [ ] K1–K4 are implemented, or each remaining defect is explicitly disclosed and accepted by the integration lead.
-- [ ] Admin authorization, MFA/recovery, sensitive-action confirmation and the common audit writer have focused regression tests.
-- [ ] Dashboard, users and settings work end to end, including delivered warnings and announced maintenance state.
-- [ ] Existing reports/AI/audit behavior still works during any refactor, or a planned migration path is documented and accepted. Do not hand over an application with erased existing functionality.
-- [ ] Provide the actual changed-file list, new component/service interfaces, routes/props, schema/migration order and audit-event names.
-- [ ] Give Liam the report/settings/backup integration contracts, safe test-fixture instructions, test commands/results and known issues. No real admin password, TOTP seed, recovery codes or `.env` values in this file or shared messages.
-- [ ] Run the build and affected tests. Check ordinary login/workspace routes still work and the restored public landing page was not altered.
+- [x] K1–K4 are implemented, or each remaining defect is explicitly disclosed and accepted by the integration lead.
+- [x] Admin authorization, MFA/recovery, sensitive-action confirmation and the common audit writer have focused regression tests.
+- [x] Dashboard, users and settings work end to end, including delivered warnings and announced maintenance state.
+- [x] Existing reports/AI/audit behavior still works during any refactor, or a planned migration path is documented and accepted. Do not hand over an application with erased existing functionality.
+- [x] Provide the actual changed-file list, new component/service interfaces, routes/props, schema/migration order and audit-event names.
+- [x] Give Liam the report/settings/backup integration contracts, safe test-fixture instructions, test commands/results and known issues. No real admin password, TOTP seed, recovery codes or `.env` values in this file or shared messages.
+- [x] Run the build and affected tests. Check ordinary login/workspace routes still work and the restored public landing page was not altered.
 - [ ] Integration lead confirms this gate; Liam owns subsequent changes to his modules, coordinating edits to King's foundation rather than replacing it.
 
 ## 10. Verification and handback

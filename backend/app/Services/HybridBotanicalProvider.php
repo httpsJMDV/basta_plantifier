@@ -11,6 +11,7 @@ class HybridBotanicalProvider implements BotanicalProvider
 
     public function respond(Conversation $conversation): array
     {
+        app('request')->attributes->set('provider_actor_id', $conversation->user_id);
         $this->groq->ensureAvailable();
         $latestUser = $conversation->messages()->where('role', 'user')->reorder()->latest('id')->with('media')->first();
         $newPhoto = $latestUser?->media !== null;

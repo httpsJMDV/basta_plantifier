@@ -10,23 +10,35 @@ use RuntimeException;
 
 class PlantNetIdentifier
 {
+    public function __construct(private AiKeyPool $keys) {}
+
     /** @param array<int, Media> $images */
     public function identify(array $images): array
     {
-        if (! config('botanical.plantnet.key')) {
-            throw new RuntimeException('Photo identification is not configured yet. Your photo is saved; add the Pl@ntNet API key in backend settings and retry.');
+        $state = $this->keys->state('plantnet');
+        if ($state === 'none') {
+            throw new RuntimeException('Photo identification is not configured yet. Your photo is saved; add a Pl@ntNet API key and retry.');
+        }
+        if ($state === 'invalid') {
+            throw new RuntimeException('Pl@ntNet rejected the identification credentials. Your photo is saved; check the API keys and retry.');
         }
         try {
-            $request = Http::acceptJson()->connectTimeout(8)->timeout(25)
-                ->withOptions(['allow_redirects' => false])
-                ->withQueryParameters(['api-key' => config('botanical.plantnet.key'), 'lang' => 'en', 'nb-results' => 5, 'include-related-images' => 'false', 'no-reject' => 'false']);
-            foreach ($images as $index => $image) {
-                $request->attach('images', Storage::disk('local')->get($image->path), $index === 0 ? 'plant.jpg' : 'plant-'.($index + 1).'.jpg', ['Content-Type' => 'image/jpeg']);
-            }
-            $response = $request->post('https://my-api.plantnet.org/v2/identify/'.rawurlencode(config('botanical.plantnet.project', 'all')));
+            $response = $this->keys->send('plantnet', function ($key) use ($images) {
+                $request = Http::acceptJson()->connectTimeout(8)->timeout(25)
+                    ->withOptions(['allow_redirects' => false])
+                    ->withQueryParameters(['api-key' => $key, 'lang' => 'en', 'nb-results' => 5, 'include-related-images' => 'false', 'no-reject' => 'false']);
+                foreach ($images as $index => $image) {
+                    $request->attach('images', Storage::disk('local')->get($image->path), $index === 0 ? 'plant.jpg' : 'plant-'.($index + 1).'.jpg', ['Content-Type' => 'image/jpeg']);
+                }
+
+                return $request->post('https://my-api.plantnet.org/v2/identify/'.rawurlencode(config('botanical.plantnet.project', 'all')));
+            });
         } catch (\Throwable $exception) {
             // Provider exception URLs can contain the private key. Never propagate them.
             throw new RuntimeException('Pl@ntNet could not be reached. Your photo is saved; please retry later.');
+        }
+        if (! $response) {
+            throw new RuntimeException('Pl@ntNet identification quota is temporarily exhausted. Your photo is saved; please retry later.');
         }
         if ($response->status() === 404) {
             return $this->normalize(['results' => []]);

@@ -45,7 +45,7 @@ test('settings password modal, local city review, preferences and full history',
     await expect(page.locator('.history-row').filter({hasText:'Old orchid field study'})).toBeVisible();
     await page.locator('.history-row').filter({hasText:'Old orchid field study'}).getByRole('button',{name:'Archive',exact:true}).click();
     await expect(page.getByText('No matching conversations',{exact:true})).toBeVisible();
-    await page.locator('.heading-actions summary').click();await select(page,'Status','Archived');
+    await page.locator('.heading-actions summary').click();await page.getByRole('menuitem',{name:'Status',exact:true}).click();await page.getByRole('menuitemradio',{name:'Archived',exact:true}).click();
     await page.getByRole('button',{name:'Apply filters',exact:true}).click();
     await expect(page.getByRole('button',{name:'Restore',exact:true})).toBeVisible();
     await page.getByRole('button',{name:'Restore',exact:true}).click();
@@ -84,11 +84,12 @@ test('long timeline footer and responsive workspace remain usable',async({page},
         if(width>=1051){
             const footer=await page.locator('.timeline-bottom').boundingBox();expect(footer).not.toBeNull();expect(footer!.y+footer!.height).toBeLessThanOrEqual(651);
             expect(await page.locator('.timeline-events').evaluate(element=>element.scrollHeight>element.clientHeight)).toBe(true);
+            await expect(page.locator('.timeline-events')).toHaveCSS('scrollbar-width','none');
             await page.locator('.timeline-events li').last().scrollIntoViewIfNeeded();await expect(page.locator('.timeline-bottom')).toBeVisible();
         }
         await page.screenshot({path:testInfo.outputPath('workspace-'+width+'.png')});
     }
-    await page.getByRole('button',{name:'Help',exact:true}).click();await expect(page.getByRole('dialog',{name:'About your AI Workspace'})).toBeVisible();await page.keyboard.press('Escape');
+    await page.getByRole('button',{name:'Help',exact:true}).click();await expect(page.getByRole('dialog',{name:'PlantifierAI help'})).toBeVisible();await page.keyboard.press('Escape');
 });
 test('sidebar chat filters stay fully visible and Chat History opens complete results',async({page},testInfo)=>{
     await login(page);
@@ -99,12 +100,25 @@ test('sidebar chat filters stay fully visible and Chat History opens complete re
         await trigger.click();
         const panel=page.getByRole('region',{name:'Conversation filters',exact:true});await expect(panel).toBeVisible();
         const bounds=await panel.boundingBox();expect(bounds).not.toBeNull();expect(bounds!.x).toBeGreaterThanOrEqual(0);expect(bounds!.y).toBeGreaterThanOrEqual(0);expect(bounds!.x+bounds!.width).toBeLessThanOrEqual(width);expect(bounds!.y+bounds!.height).toBeLessThanOrEqual(651);
+        expect(bounds!.width).toBeLessThanOrEqual(264);expect(bounds!.height).toBeLessThan(240);
         expect(await panel.evaluate(element=>{const rect=element.getBoundingClientRect();return [[rect.left+12,rect.top+12],[rect.right-12,rect.bottom-12]].every(([x,y])=>element.contains(document.elementFromPoint(x,y)))})).toBe(true);
-        for(const label of ['Status','Last activity','Group by','Sort by'])await expect(panel.getByRole('combobox',{name:label,exact:true})).toBeVisible();
-        await panel.getByRole('combobox',{name:'Status',exact:true}).click();await page.getByRole('option',{name:'All',exact:true}).click();await expect(panel.getByRole('combobox',{name:'Status',exact:true})).toContainText('All');await expect(panel).toBeVisible();
+        for(const label of ['Status','Last activity','Group by','Sort by'])await expect(panel.getByRole('menuitem',{name:label,exact:true})).toBeVisible();
+        const status=panel.getByRole('menuitem',{name:'Status',exact:true});
+        if(width>=900)await status.hover();else await status.click();
+        const submenu=page.getByRole('menu',{name:'Status',exact:true});await expect(submenu).toBeVisible();
+        const subBounds=await submenu.boundingBox();expect(subBounds).not.toBeNull();expect(subBounds!.x).toBeGreaterThanOrEqual(0);expect(subBounds!.x+subBounds!.width).toBeLessThanOrEqual(width);expect(subBounds!.y+subBounds!.height).toBeLessThanOrEqual(650);
+        if(width>=900)expect(subBounds!.x).toBeGreaterThanOrEqual(bounds!.x+bounds!.width);
+        await page.getByRole('menuitemradio',{name:'All',exact:true}).click();await expect(status).toContainText('All');await expect(panel).toBeVisible();
+        await status.focus();await status.press('ArrowRight');await expect(submenu.getByRole('menuitemradio',{name:'All',exact:true})).toBeFocused();
+        await expect(submenu.getByRole('menuitemradio',{name:'All',exact:true})).toHaveAttribute('aria-checked','true');
+        await page.screenshot({path:testInfo.outputPath('filter-submenu-'+width+'.png')});
+        await page.keyboard.press('ArrowLeft');await expect(submenu).toHaveCount(0);await expect(status).toBeFocused();
         await panel.getByRole('button',{name:'Reset to defaults',exact:true}).scrollIntoViewIfNeeded();await page.screenshot({path:testInfo.outputPath('sidebar-filters-'+width+'.png')});
         await page.keyboard.press('Escape');await expect(panel).toHaveCount(0);await expect(trigger).toBeFocused();
-        await trigger.click();await panel.getByRole('combobox',{name:'Last activity',exact:true}).click();await page.keyboard.press('Escape');await expect(panel).toBeVisible();await page.keyboard.press('Escape');await expect(panel).toHaveCount(0);
+        await trigger.click();await panel.getByRole('menuitem',{name:'Last activity',exact:true}).click();await page.keyboard.press('Escape');await expect(panel).toBeVisible();await page.keyboard.press('Escape');await expect(panel).toHaveCount(0);
     }
     await page.getByRole('link',{name:'Chat History',exact:true}).click();await expect(page).toHaveURL(/\/workspace\/history/);await expect(page.getByRole('heading',{name:'Chat history',exact:true})).toBeVisible();
+    if(await page.getByRole('button',{name:'Open navigation',exact:true}).isVisible())await page.getByRole('button',{name:'Open navigation',exact:true}).click();
+    await expect(page.getByRole('link',{name:'Chat History',exact:true})).toHaveAttribute('aria-current','page');
+    await expect(page.getByRole('navigation',{name:'Workspace',exact:true}).getByRole('link',{name:'AI Workspace',exact:true})).not.toHaveAttribute('aria-current','page');
 });

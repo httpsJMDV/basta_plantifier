@@ -8,6 +8,7 @@ use App\Models\ChatMessage;
 use App\Models\Conversation;
 use App\Models\PlantRecord;
 use App\Services\ImageStore;
+use App\Services\ProviderTelemetry;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
@@ -22,7 +23,7 @@ class WorkspaceController extends Controller
             Gate::authorize('view', $conversation);
         }
 
-        return Inertia::render('Workspace', ['conversation' => $conversation ? [...$conversation->toArray(), 'messages' => $conversation->messages()->with(['media', 'attachments'])->get()] : null, 'aiConfigured' => (bool) config('botanical.groq_key'), 'identificationConfigured' => (bool) config('botanical.plantnet.key'), 'savedMessageIds' => fn () => PlantRecord::where('user_id', $r->user()->id)->whereNotNull('chat_message_id')->pluck('chat_message_id')]);
+        return Inertia::render('Workspace', ['correctionReviews' => fn () => $conversation ? DB::table('corrections')->where('user_id', $r->user()->id)->whereIn('chat_message_id', $conversation->messages()->select('id'))->latest('id')->limit(100)->get(['chat_message_id', 'status', 'review_notes', 'reviewed_at'])->unique('chat_message_id')->values() : [], 'conversation' => $conversation ? [...$conversation->toArray(), 'messages' => $conversation->messages()->with(['media', 'attachments'])->get()] : null, 'aiConfigured' => (bool) config('botanical.groq_key'), 'identificationConfigured' => (bool) config('botanical.plantnet.key'), 'savedMessageIds' => fn () => PlantRecord::where('user_id', $r->user()->id)->whereNotNull('chat_message_id')->pluck('chat_message_id')]);
     }
 
     public function send(ChatRequest $r, ImageStore $images, BotanicalProvider $provider)
@@ -58,7 +59,7 @@ class WorkspaceController extends Controller
         } catch (\Throwable $e) {
             $safe = $e instanceof \RuntimeException ? $e->getMessage() : 'AI is unavailable. Your message is saved; please retry.';
             $c->messages()->create(['role' => 'assistant', 'body' => $safe, 'status' => 'error']);
-            DB::table('ai_usage')->insert(['user_id' => $c->user_id, 'model' => config('botanical.model'), 'status' => 'error', 'tokens' => 0, 'created_at' => now(), 'updated_at' => now()]);
+            app(ProviderTelemetry::class)->pipelineFailure($c->user_id, $safe);
         }
     }
 

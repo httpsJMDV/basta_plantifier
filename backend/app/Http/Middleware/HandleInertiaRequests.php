@@ -28,6 +28,7 @@ class HandleInertiaRequests extends Middleware
         $filters = $r->is('workspace/history') ? $history->filters($r) : array_merge(ConversationHistory::DEFAULTS, $r->session()->get('history_filters', []));
 
         return [...parent::share($r),
+            'accountWarnings' => fn () => $u ? DB::table('account_warnings')->where('user_id', $u->id)->whereNull('acknowledged_at')->latest('id')->limit(5)->get(['id', 'reason', 'created_at']) : [],
             'help' => ['creators' => config('botanical.creators', [])],
             'auth' => ['user' => $u ? ['id' => $u->id, 'name' => $u->name, 'avatar_url' => $u->avatar_url, 'email' => $u->email, 'username' => $u->username, 'bio' => $u->bio, 'municipality' => $u->municipality, 'interests' => $u->interests ?? [], 'purpose' => $u->purpose, 'experience' => $u->experience, 'discovery_enabled' => $u->discovery_enabled, 'friend_request_privacy' => $u->friend_request_privacy, 'profile_visibility' => $u->profile_visibility, 'connections_visibility' => $u->connections_visibility, 'activity_visibility' => $u->activity_visibility, 'google_linked' => (bool) $u->google_id, 'has_local_password' => (bool) $u->local_password_set_at, 'verified' => (bool) $u->email_verified_at, 'is_admin' => $u->isAdmin()] : null],
             'historyFilters' => $filters,

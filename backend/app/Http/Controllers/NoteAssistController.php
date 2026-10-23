@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\Note;
 use App\Services\NoteAssistant;
+use App\Services\ProviderTelemetry;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
 
@@ -18,6 +19,8 @@ class NoteAssistController extends Controller
         try {
             return response()->json($assistant->suggest($data['text'], $data['action']));
         } catch (\RuntimeException $exception) {
+            app(ProviderTelemetry::class)->pipelineFailure($request->user()->id, $exception->getMessage(), 'notes');
+
             return response()->json(['message' => $exception->getMessage()], 503);
         }
     }

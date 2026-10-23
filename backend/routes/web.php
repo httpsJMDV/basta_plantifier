@@ -116,14 +116,24 @@ Route::middleware('auth')->group(function () {
         Route::post('/settings/photo', [ProfilePhotoController::class, 'store'])->middleware('throttle:uploads');
         Route::delete('/settings/photo', [ProfilePhotoController::class, 'destroy'])->middleware('throttle:write');
     });
+    Route::post('/settings/warnings/{warning}/acknowledge', [AdminController::class, 'acknowledgeWarning'])->middleware('throttle:write');
     Route::get('/admin/mfa', [AdminController::class, 'mfa']);
     Route::post('/admin/mfa', [AdminController::class, 'verifyMfa'])->middleware('throttle:login');
     Route::prefix('admin')->middleware('superadmin')->group(function () {
         Route::get('/', [AdminController::class, 'index']);
+        Route::get('/users/{user}', [AdminController::class, 'userReview']);
+        Route::post('/pins/{pin}', [AdminController::class, 'pinAction'])->middleware('throttle:write');
+        Route::get('/reports/{report}/media', [AdminController::class, 'evidenceMedia']);
         Route::post('/users/{user}', [AdminController::class, 'userAction'])->middleware('throttle:write');
         Route::get('/reports/{report}/evidence', [AdminController::class, 'evidence']);
         Route::post('/reports/{report}', [AdminController::class, 'resolve'])->middleware('throttle:write');
         Route::post('/settings', [AdminController::class, 'settings'])->middleware('throttle:write');
+        Route::post('/ai/connection', [AdminController::class, 'aiConnection'])->middleware('throttle:write');
+        Route::post('/ai/{provider}/models', [AdminController::class, 'aiModels'])->whereIn('provider', ['groq', 'claude'])->middleware('throttle:write');
+        Route::post('/ai/keys', [AdminController::class, 'aiAddKey'])->middleware('throttle:write');
+        Route::post('/ai/keys/{key}/check', [AdminController::class, 'aiTryKey'])->middleware('throttle:write');
+        Route::delete('/ai/keys/{key}', [AdminController::class, 'aiRemoveKey'])->middleware('throttle:write');
+        Route::post('/backups/{kind}',[AdminController::class, 'backup'])->whereIn('kind', ['source', 'database', 'media', 'restore'])->middleware('throttle:write');
         Route::post('/corrections/{correction}', [AdminController::class, 'correction'])->middleware('throttle:write');
     });
 });

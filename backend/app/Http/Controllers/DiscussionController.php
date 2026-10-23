@@ -19,7 +19,7 @@ class DiscussionController extends Controller
 
     public function comments(int $post, int $viewer, SocialGraph $graph, ?int $parent = null)
     {
-        $query = DB::table('comments')->join('users', 'users.id', '=', 'comments.user_id')->where('comments.post_id', $post)->whereNull('users.suspended_at')->whereNotIn('comments.user_id', $graph->blockedIds($viewer))->select('comments.*', 'users.name', 'users.avatar_media_id');
+        $query = DB::table('comments')->join('users', 'users.id', '=', 'comments.user_id')->where('comments.post_id', $post)->whereNull('comments.hidden_at')->whereNull('users.suspended_at')->whereNotIn('comments.user_id', $graph->blockedIds($viewer))->select('comments.*', 'users.name', 'users.avatar_media_id');
 
         return $parent === null ? $query->whereNull('comments.parent_id') : $query->where('comments.parent_id', $parent);
     }
@@ -87,7 +87,7 @@ class DiscussionController extends Controller
             $this->readable($id, $viewer, $graph);
         } else {
             $comment = DB::table('comments')->find($id);
-            abort_unless($comment && ! $graph->blocked($viewer, $comment->user_id) && ! DB::table('users')->where('id', $comment->user_id)->whereNotNull('suspended_at')->exists(), 404);
+            abort_unless($comment && ! $comment->hidden_at && ! $graph->blocked($viewer, $comment->user_id) && ! DB::table('users')->where('id', $comment->user_id)->whereNotNull('suspended_at')->exists(), 404);
             $this->readable($comment->post_id, $viewer, $graph);
             if ($comment->parent_id) {
                 abort_unless($this->comments($comment->post_id, $viewer, $graph)->where('comments.id', $comment->parent_id)->exists(), 404);

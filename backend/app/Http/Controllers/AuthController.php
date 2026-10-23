@@ -53,7 +53,7 @@ class AuthController extends Controller
             $r->user()->forceFill(['local_password_set_at' => now()])->save();
         }
 
-        return redirect()->intended('/workspace');
+        return redirect()->intended($r->user()->isAdmin() ? '/admin' : '/workspace');
     }
 
     public function logout(Request $r)

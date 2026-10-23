@@ -3,10 +3,11 @@ import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import type {Pin} from '../types';
 
-export default function MapCanvas({pins,onPick,selected,onSelect}:{pins:Pin[];onPick?:(lat:number,lng:number)=>void;selected:number|null;onSelect:(id:number)=>void}){
+export default function MapCanvas({pins,onPick,picked,selected,onSelect}:{pins:Pin[];onPick?:(lat:number,lng:number)=>void;picked?:[number,number]|null;selected:number|null;onSelect:(id:number)=>void}){
     const container=useRef<HTMLDivElement>(null);
     const map=useRef<L.Map|null>(null);
     const layer=useRef<L.LayerGroup|null>(null);
+    const draftMarker=useRef<L.Marker|null>(null);
     const callbacks=useRef({onPick,onSelect});
     callbacks.current={onPick,onSelect};
 
@@ -22,7 +23,7 @@ export default function MapCanvas({pins,onPick,selected,onSelect}:{pins:Pin[];on
         instance.on('click',event=>callbacks.current.onPick?.(event.latlng.lat,event.latlng.lng));
         const resize=new ResizeObserver(()=>instance.invalidateSize());
         resize.observe(container.current);
-        return()=>{resize.disconnect();instance.remove();map.current=null};
+        return()=>{resize.disconnect();instance.remove();map.current=null;draftMarker.current=null};
     },[]);
 
     useEffect(()=>{
@@ -57,5 +58,15 @@ export default function MapCanvas({pins,onPick,selected,onSelect}:{pins:Pin[];on
         }
     },[pins,selected]);
 
-    return <div className="leaflet-map" ref={container} aria-label="Plant discovery map"/>;
+    useEffect(()=>{
+        if(!map.current)return;
+        if(!picked){draftMarker.current?.remove();draftMarker.current=null;return}
+        if(!draftMarker.current){
+            draftMarker.current=L.marker(picked,{draggable:true,title:'Chosen location. Drag to adjust.',icon:L.divIcon({className:'chosen-map-pin',html:'<span></span>',iconSize:[28,36],iconAnchor:[14,34]})}).addTo(map.current);
+            draftMarker.current.on('dragend',()=>{const point=draftMarker.current!.getLatLng();callbacks.current.onPick?.(point.lat,point.lng)});
+        }else draftMarker.current.setLatLng(picked);
+        map.current.setView(picked,Math.max(map.current.getZoom(),13),{animate:false});
+    },[picked?.[0],picked?.[1]]);
+
+    return <div className="leaflet-map" ref={container} aria-label={onPick?'Choose a location on the map':'Plant discovery map'}/>;
 }

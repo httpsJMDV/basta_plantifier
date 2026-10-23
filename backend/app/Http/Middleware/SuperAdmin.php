@@ -10,7 +10,7 @@ class SuperAdmin
     public function handle(Request $r, Closure $next)
     {
         abort_unless($r->user()?->isAdmin(), 403);
-        if (! $r->user()->totp_secret || (int) $r->session()->get('admin_mfa_at', 0) < now()->subMinutes(30)->timestamp) {
+        if (config('botanical.admin_mfa') && ! $r->user()->totp_secret || config('botanical.admin_mfa') &&(int) $r->session()->get('admin_mfa_at', 0) < now()->subMinutes(30)->timestamp) {
             if ($r->expectsJson()) {
                 abort(403, 'Admin MFA verification is required.');
             }

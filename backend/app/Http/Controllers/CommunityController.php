@@ -15,10 +15,14 @@ class CommunityController extends Controller
 {
     public function index(Request $r, SocialGraph $graph, Sharing $sharing)
     {
-        $r->validate(['tab' => 'nullable|in:feed,following,requests,stories']);
+        $r->validate(['tab' => 'nullable|in:feed,following,requests,stories', 'post' => 'nullable|integer|min:1']);
         $uid = $r->user()->id;
         $excluded = $graph->blockedIds($uid);
         $q = DB::table('posts')->join('users', 'users.id', '=', 'posts.user_id')->where('posts.status', 'published')->whereNull('users.suspended_at')->whereNotIn('posts.user_id', $excluded)->select('posts.*', 'users.name', 'users.username', 'users.avatar_media_id');
+        if ($r->filled('post')) {
+            $q->where('posts.id', $r->integer('post'));
+            abort_unless((clone $q)->exists(), 404);
+        }
         if ($r->input('tab') === 'requests') {
             $q->where('posts.kind', 'identification');
         }
@@ -52,7 +56,7 @@ class CommunityController extends Controller
 
     public function store(Request $r, ImageStore $images, Sharing $sharing)
     {
-        $data = $r->validate(['body' => 'required|string|max:6000', 'kind' => 'required|in:post,identification', 'area' => 'nullable|string|max:160', 'image' => 'nullable|image|mimes:jpg,jpeg,png,webp|max:4096|dimensions:max_width=6000,max_height=6000', 'plant_record_id' => ['nullable', 'integer', Rule::exists('plant_records', 'id')->where('user_id', $r->user()->id)], 'share_confirmation' => $r->filled('plant_record_id') ? 'required|accepted' : 'nullable|boolean', ...$sharing->rules($r)]);
+        $data = $r->validate(['body' => 'required|string|max:6000', 'kind' => 'required|in:post,identification,question,care,progress,tips', 'area' => 'nullable|string|max:160', 'image' => 'nullable|image|mimes:jpg,jpeg,png,webp|max:4096|dimensions:max_width=6000,max_height=6000', 'plant_record_id' => ['nullable', 'integer', Rule::exists('plant_records', 'id')->where('user_id', $r->user()->id)], 'share_confirmation' => $r->filled('plant_record_id') ? 'required|accepted' : 'nullable|boolean', ...$sharing->rules($r)]);
         if ($data['kind'] === 'identification') {
             $r->validate(['image' => 'required|image']);
         }
@@ -108,7 +112,7 @@ class CommunityController extends Controller
     public function vote(Request $r, int $comment, SocialGraph $graph)
     {
         $c = DB::table('comments')->find($comment);
-        abort_unless($c && $c->species, 404);
+        abort_unless($c && $c->species && ! $c->hidden_at, 404);
         $p = $this->readable($c->post_id, $r->user()->id, $graph);
         abort_if($c->user_id === $r->user()->id || $p->user_id === $r->user()->id || $graph->blocked($r->user()->id, $c->user_id), 403, 'You cannot support your own suggestion or approve your own request.');
         $q = DB::table('suggestion_votes')->where('comment_id', $comment)->where('user_id', $r->user()->id);
@@ -125,7 +129,7 @@ class CommunityController extends Controller
         DB::transaction(function () use ($data, $p, $r, $graph) {
             if (! empty($data['comment_id'])) {
                 $c = DB::table('comments')->where('post_id', $p->id)->find($data['comment_id']);
-                abort_unless($c && $c->species && $c->user_id !== $r->user()->id && ! $graph->blocked($c->user_id, $r->user()->id), 422, 'Select a suggestion from another community member.');
+                abort_unless($c && $c->species && ! $c->hidden_at && $c->user_id !== $r->user()->id && ! $graph->blocked($c->user_id, $r->user()->id), 422, 'Select a suggestion from another community member.');
                 DB::table('comments')->where('post_id', $p->id)->update(['accepted' => false]);
                 DB::table('comments')->where('id', $c->id)->update(['accepted' => true, 'updated_at' => now()]);
             }

@@ -1,4 +1,10 @@
 <?php
+
+use App\Http\Middleware\AccountActive;
+use App\Http\Middleware\HandleInertiaRequests;
+use App\Http\Middleware\Onboarded;
+use App\Http\Middleware\SecurityEvents;
+use App\Http\Middleware\SuperAdmin;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
@@ -8,8 +14,9 @@ return Application::configure(basePath: dirname(__DIR__))
     ->withRouting(web: __DIR__.'/../routes/web.php', commands: __DIR__.'/../routes/console.php', channels: __DIR__.'/../routes/channels.php', health: '/up')
     ->withMiddleware(function (Middleware $m): void {
         $m->redirectUsersTo('/workspace');
-        $m->web(append: [\App\Http\Middleware\HandleInertiaRequests::class, \App\Http\Middleware\AccountActive::class]);
-        $m->alias(['onboarded'=>\App\Http\Middleware\Onboarded::class,'superadmin'=>\App\Http\Middleware\SuperAdmin::class]);
+        $m->prepend(SecurityEvents::class);
+        $m->web(append: [HandleInertiaRequests::class, AccountActive::class]);
+        $m->alias(['onboarded' => Onboarded::class, 'superadmin' => SuperAdmin::class]);
     })
     ->withExceptions(function (Exceptions $e): void {
         $e->shouldRenderJsonWhen(fn (Request $r) => $r->expectsJson());

@@ -23,6 +23,38 @@ class CommunityDiscussionTest extends TestCase
         return DB::table('posts')->insertGetId(['user_id' => $user->id, 'body' => 'QA discussion', 'kind' => 'post', 'status' => 'published', 'created_at' => now(), 'updated_at' => now()]);
     }
 
+    public function test_additional_post_topics_are_saved_and_unknown_topics_are_rejected(): void
+    {
+        $user = User::factory()->create(['onboarded_at' => now()]);
+        $this->actingAs($user);
+        foreach (['question', 'care', 'progress', 'tips'] as $kind) {
+            $this->postJson('/posts', ['body' => 'A useful botanical observation', 'kind' => $kind])->assertOk();
+            $this->assertDatabaseHas('posts', ['user_id' => $user->id, 'kind' => $kind]);
+        }
+        $this->postJson('/posts', ['body' => 'An invalid topic', 'kind' => 'advertisement'])->assertUnprocessable();
+        $this->postJson('/posts', ['body' => 'Identify this plant', 'kind' => 'identification'])->assertUnprocessable();
+    }
+
+    public function test_shared_post_links_resolve_one_post_and_keep_visibility_boundaries(): void
+    {
+        $author = User::factory()->create(['onboarded_at' => now()]);
+        $viewer = User::factory()->create(['onboarded_at' => now()]);
+        $post = $this->makePost($author);
+        $this->makePost($author);
+        $url = '/community?post='.$post;
+        $this->get($url)->assertRedirect('/login');
+        $this->actingAs($viewer)->get($url)->assertInertia(fn (Assert $page) => $page->has('posts.data', 1)->where('posts.data.0.id', $post));
+        DB::table('posts')->where('id', $post)->update(['status' => 'hidden']);
+        $this->get($url)->assertNotFound();
+        DB::table('posts')->where('id', $post)->update(['status' => 'published']);
+        $author->forceFill(['suspended_at' => now()])->save();
+        $this->get($url)->assertNotFound();
+        $author->forceFill(['suspended_at' => null])->save();
+        DB::table('relationships')->insert(['user_id' => $author->id, 'target_id' => $viewer->id, 'kind' => 'block', 'status' => 'accepted', 'created_at' => now(), 'updated_at' => now()]);
+        $this->get($url)->assertNotFound();
+        $this->get('/community?post=invalid')->assertSessionHasErrors('post');
+    }
+
     public function test_reaction_change_removal_allowlist_and_uniqueness_are_enforced(): void
     {
         $user = User::factory()->create(['onboarded_at' => now()]);

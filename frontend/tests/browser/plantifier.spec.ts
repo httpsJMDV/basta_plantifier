@@ -40,13 +40,15 @@ test('desktop and mobile personal journey, escaped content and two-account live 
     await page.getByRole('link',{name:'Gallery & Location'}).click();
     await page.getByRole('button',{name:'Add a location'}).click();
     await page.getByLabel('Location title').fill(pinTitle);
+    await page.getByText('Enter coordinates manually',{exact:true}).click();
     await page.getByLabel('Latitude',{exact:true}).fill('13.1234567');
     await page.getByLabel('Longitude',{exact:true}).fill('121.7654321');
     await page.getByRole('button',{name:'Save location'}).click();
     await expect(page.locator('.pin-preview').getByText(pinTitle)).toBeVisible();
     await page.locator('.leaflet-interactive').first().hover();await expect(page.locator('.leaflet-tooltip')).toContainText(pinTitle);await expect(page.locator('.leaflet-tooltip img')).toHaveCount(0);
     await page.getByRole('link',{name:'Public Discovery Map'}).click();
-    await expect(page.getByText('No public discoveries here yet.')).toBeVisible();
+    // Other QA fixtures may publish locations; what matters is that this private pin never appears publicly.
+    await expect(page).toHaveURL(/context=public/);await expect(page.getByText(pinTitle)).toHaveCount(0);
     await page.getByRole('link',{name:'Community',exact:true}).click();
     await page.getByRole('button',{name:'Share a discovery',exact:true}).click();
     await page.getByLabel('What did you notice?').fill(postText);

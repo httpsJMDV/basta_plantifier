@@ -25,6 +25,7 @@ class ReportController extends Controller
         } elseif ($data['subject_type'] === 'story') {
             abort_unless($subject->expires_at > now()->toDateTimeString() && ($subject->audience === 'public' || $subject->user_id === $uid || in_array($subject->user_id, $graph->friendIds($uid), true)), 404);
         } elseif ($data['subject_type'] === 'comment') {
+            abort_if((bool) $subject->hidden_at, 404);
             abort_unless(DB::table('posts')->where('id', $subject->post_id)->where('status', 'published')->exists(), 404);
         } elseif ($data['subject_type'] === 'post') {
             abort_unless($subject->status === 'published', 404);

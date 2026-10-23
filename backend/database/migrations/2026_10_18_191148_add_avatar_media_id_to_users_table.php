@@ -12,7 +12,10 @@ return new class extends Migration
     public function up(): void
     {
         Schema::table('users', function (Blueprint $table) {
-            $table->foreignId('avatar_media_id')->nullable()->constrained('media')->nullOnDelete();
+            $column = $table->foreignId('avatar_media_id')->nullable();
+            if (Schema::hasTable('media')) {
+                $column->constrained('media')->nullOnDelete();
+            }
         });
     }
 
@@ -22,7 +25,10 @@ return new class extends Migration
     public function down(): void
     {
         Schema::table('users', function (Blueprint $table) {
-            $table->dropConstrainedForeignId('avatar_media_id');
+            if (collect(Schema::getForeignKeys('users'))->contains(fn ($key) => $key['columns'] === ['avatar_media_id'])) {
+                $table->dropForeign(['avatar_media_id']);
+            }
+            $table->dropColumn('avatar_media_id');
         });
     }
 };

@@ -6,6 +6,9 @@ return [
     'model' => env('GROQ_MODEL', 'qwen/qwen3.8-27b'),
     'max_completion_tokens' => (int) env('GROQ_MAX_COMPLETION_TOKENS', 768),
     'enabled' => env('AI_ENABLED', true),
+    // Authenticator and password re-entry for /admin; skipped on a local machine unless ADMIN_MFA=true.
+    'admin_mfa' => env('ADMIN_MFA', env('APP_ENV', 'production') !== 'local'),
+    'backup_path' => env('BACKUP_PATH', base_path('../backups')),
     'claude' => [
         'key' => env('ANTHROPIC_API_KEY'),
         'model' => env('CLAUDE_MODEL', 'claude-sonnet-5-5'),

@@ -32,7 +32,7 @@ Check with `php -m`. Every name above should be listed. `gd` is needed for photo
 ## 2. Clone the branch
 
 ```powershell
-git clone -b feat/plantifier-ai-workspace https://github.com/httpsJMDV/basta_plantifier.git
+git clone -b feat/admin-ai-providers https://github.com/httpsJMDV/basta_plantifier.git
 cd basta_plantifier
 ```
 

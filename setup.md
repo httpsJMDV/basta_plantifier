@@ -236,7 +236,7 @@ mysqldump -u root -p --single-transaction --routines --result-file=backend\datab
 
 Use `--result-file` instead of `>`, because PowerShell's `>` saves the file in a format MySQL can't import.
 
-The export includes every account's email and password hash. Keep the repository private if real accounts are in it.
+The repository is **public**. The committed `plantifierai.sql` was cleaned so it contains only the Super Admin and the `@plantifier.test` demo members, with no real accounts, private chats, photos, sessions or API keys. A fresh export of your own database includes every real account's email, password hash and chats. Remove those accounts first, or share that file privately instead of committing it.
 
 ## 11. Useful commands
 
